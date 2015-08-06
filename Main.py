@@ -67,6 +67,8 @@ def Features2String(features,chars):
 #used chars    
 chars = """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+.,:;?/\\!@#$%&*()"\'\n """    
 
+Directory='C:\Users\Daniel\Copy\Columbia\Research\RNNs' # change accorind to required directory
+
 n_epochs=10000
 batch_size = 250
 burnin = 50 # RNN throws away prediction before that time
@@ -74,21 +76,22 @@ n_train_batches = 28
 do_save = 1
 
 # number of hidden units
-n_H = 727
+n_H = 2119
 # number of input units
 n_in=len(chars)+1 #number of characters 
 # number of output units
 n_out = n_in
 
 fname = 'RNN_' + str(n_in)
-savefilename = 'C:\Users\Daniel\Copy\Columbia\Research\RNNs\Josh files' + fname + '.save'
+
+savefilename = Directory + '\ORNNs' + fname + '.save'
+load_data_name = Directory + '\mrnns\wiki_letters_2G'
 
 print 'loading a chunk of wikipedia...'
-(data, _) = load('C:\Users\Daniel\Copy\Columbia\Research\RNNs\mrnns\wiki_letters_2G')
+(data, _) = load(load_data_name)
 _data = data
 
-
-train_size=1000000
+train_size=10000000
 test_size=1000 #from  the end?
 valid_size=1000 # after test range    
 
