@@ -16,7 +16,7 @@ from math import ceil, floor
 import theano
 import theano.tensor as T
 from layer_classes import RNN, SoftmaxClassifier, SVMclassifier
-from misc import GradClip, clip_gradient, Adam
+from misc import GradClip, clip_gradient, Adam, SGD
 from pylab import load
 from random import sample
 
@@ -69,14 +69,13 @@ chars = """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+.,:;
 
 Directory='C:\Users\Daniel\Copy\Columbia\Research\RNNs' # change accorind to required directory
 
-n_epochs=10000
+n_epochs=10
 batch_size = 250
 burnin = 50 # RNN throws away prediction before that time
-n_train_batches = 28
 do_save = 1
 
 # number of hidden units
-n_H = 2119
+n_H = 200
 # number of input units
 n_in=len(chars)+1 #number of characters 
 # number of output units
@@ -91,7 +90,7 @@ print 'loading a chunk of wikipedia...'
 (data, _) = load(load_data_name)
 _data = data
 
-train_size=10000000
+train_size=1000000
 test_size=1000 #from  the end?
 valid_size=1000 # after test range    
 
@@ -176,8 +175,11 @@ test_model = theano.function([index], [cost, classifier.output, y],
 # create a list of all model parameters to be fit by gradient descent
 params = RNN_1.params+classifier.params
 
+## Regular SGD
+#updates = SGD(cost, params, lr=0.05)
 # updates from ADAM
 updates = Adam(cost, params)
+
 
 # create a function to train the model
 train_model = theano.function([index],[cost, classifier.output, y], updates=updates,
@@ -215,6 +217,7 @@ track_test = list()
 
 while (epoch < n_epochs) and (not done_looping):
     
+    epoch = epoch + 1
     for ss in range(int(splits)):
         if ss<splits-1:
             T_split=int(floor(L/splits))
@@ -224,7 +227,7 @@ while (epoch < n_epochs) and (not done_looping):
         split_loc=int(ss*floor(L/splits))
         data_train_part=String2Features(data_train[split_loc:(split_loc+T_split)],chars)
         
-        epoch = epoch + 1
+
         n_train_batches=T_split/batch_size-1
         rand_indices=sample(range(0,T_split-batch_size,batch_size), n_train_batches)
         

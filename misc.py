@@ -24,6 +24,16 @@ def Adam(cost, params, lr=0.0002, b1=0.1, b2=0.001, e=1e-8):
         updates.append((p, p_t))
     updates.append((i, i_t))
     return updates
+    
+def SGD(cost, params, lr=0.5):
+    updates = []
+    grads = T.grad(cost, params)
+
+    for p, g in zip(params, grads):
+        p_t = p - (lr * g)
+        updates.append((p, p_t))
+        
+    return updates
 
 class GradClip(theano.compile.ViewOp):
     """
