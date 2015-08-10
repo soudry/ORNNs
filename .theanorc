@@ -1,0 +1,8 @@
+[global] 
+device = gpu
+floatX = float32
+exception_verbosity = high
+
+[blas]
+ldflags = -L/usr/lib64/atlas -lf77blas -latlas -lgfortran
+

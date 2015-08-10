@@ -46,6 +46,9 @@ class SoftmaxClassifier(object):
         self.W = theano.shared(value=numpy.zeros((n_in, n_out),
                                                  dtype=theano.config.floatX),
                                 name='W', borrow=True)
+                                
+#        print self.W.get_value().shape
+#        input= theano.printing.Print('i = ', attrs=['shape'])(input)
         self.n_in=n_in
         self.n_out=n_out
         # initialize the biases b as a vector of n_out 0s
@@ -67,12 +70,16 @@ class SoftmaxClassifier(object):
 
         # compute vector of expected values (for each output) in symbolic form
         self.lin_output = T.dot(input, self.W) + self.b
+#        self.lin_output= theano.printing.Print('o = ', attrs=['shape'])(self.lin_output)
         self.lin_output = self.lin_output - T.max(self.lin_output)
+#        self.lin_output= theano.printing.Print('o = ', attrs=['shape'])(self.lin_output)
     
-        e_x = T.exp(self.lin_output  - self.lin_output.max(axis=1, keepdims=True))
-        self.output = e_x / e_x.sum(axis=1, keepdims=True)
-#        self.output = T.exp(self.lin_output)-T.sum(T.exp(self.lin_output))  
-#        self.output = T.nnet.softmax(self.lin_output)  
+#        e_x = T.exp(self.lin_output  - self.lin_output.max(axis=1, keepdims=True))
+#        self.output = e_x / e_x.sum(axis=1, keepdims=True)
+#        self.output = T.exp(self.lin_output)-T.sum(T.exp(self.lin_output)) 
+
+        self.output = T.nnet.softmax(self.lin_output)  
+#        self.output= theano.printing.Print('o = ', attrs=['shape'])(self.output)
         
         # parameters of the model
         self.params = [self.W, self.b]
@@ -81,8 +88,9 @@ class SoftmaxClassifier(object):
 
     def objective(self, y):
         # Compute average log-probability of the inputs
-#      return T.mean(T.nnet.categorical_crossentropy(T.argmax(y), self.output ))
-        return T.log(self.output[:,T.argmax(y)])-T.log(T.sum(self.output))
+
+      return T.nnet.categorical_crossentropy( self.output,y )
+#        return -(T.log(self.output[:,T.argmax(y)])-T.log(T.sum(self.output)))
         
         
 class SVMclassifier(object):
@@ -124,7 +132,7 @@ class SVMclassifier(object):
         self.params_helper2 = [self.W_helper2, self.b_helper2]
 
     def objective(self, y):
-        return T.mean(   (self.n_in*y - self.output)**2 / self.n_in  , axis = 0)
+        return T.mean(   ((self.n_in*y-self.output)**2)/self.n_in )
         
 
 #This variant is the standard multiple input, multiple output version
@@ -655,7 +663,8 @@ class RNN(object):
 
         #initial hidden state values
         h_0 = T.zeros((n_out,))
-  
+#        print 'W_RNN= ' , W_RNN.get_value().shape
+#        print 'W= ' , W.get_value().shape
         # recurrent function with rectified linear output activation function (u is input, h is hidden activity)
         def step(u_t, h_tm1):
             lin_E = T.dot(u_t, self.W) - T.dot(h_tm1, self.W_RNN) + self.b
@@ -670,4 +679,4 @@ class RNN(object):
                    truncate_gradient=-1)
             
         # output activity is the hidden unit activity
-        self.output = h[burnin:-1]
+        self.output = h[burnin:]

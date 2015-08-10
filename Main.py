@@ -75,7 +75,7 @@ burnin = 50 # RNN throws away prediction before that time
 do_save = 1
 
 # number of hidden units
-n_H = 200
+n_H = 500
 # number of input units
 n_in=len(chars)+1 #number of characters 
 # number of output units
@@ -90,11 +90,12 @@ print 'loading a chunk of wikipedia...'
 (data, _) = load(load_data_name)
 _data = data
 
-train_size=1000000
-test_size=1000 #from  the end?
-valid_size=1000 # after test range    
+M=1000
+train_size=1000000 #len(data)-2*M
+test_size=M #from  the end?
+valid_size=M # after test range    
 
-memory_threshold=1e8  # maximal size of array to allow in memory
+memory_threshold=1e6  # maximal size of array to allow in memory
 
 data_test=data[(train_size+valid_size):(train_size+valid_size+test_size)]
 data_valid=data[train_size:(train_size+valid_size)]
@@ -140,7 +141,7 @@ is_train = T.iscalar('is_train') # pseudo boolean for switching between training
 rng = np.random.RandomState(1234)
 
 ################################################
-# Architecture: input --> hidden layers --> reconstruct + sparse activations
+# Architecture: input --> hidden layer -> predicted output
 ################################################
 
 
@@ -148,7 +149,7 @@ rng = np.random.RandomState(1234)
 RNN_1 = RNN(rng, x ,n_in=n_in,n_out=n_H,burnin=burnin)
 
 classifier = SoftmaxClassifier(RNN_1.output, n_H, n_out)
-#classifier = SVMclassifier(RNN_1.output, n_in, n_out)
+#classifier = SVMclassifier(RNN_1.output, n_H, n_out)
 
 #classification_error = T.mean(T.nnet.categorical_crossentropy(y, SoftmaxClassifier.output ))
 #Perplexity=T.mean(-T.log2(RNN_1.output[y, T.arange(y.shape[0])]))
@@ -236,7 +237,8 @@ while (epoch < n_epochs) and (not done_looping):
             minibatch_avg_cost, current_outputs, current_labels = train_model(rand_indices[kk])
             output_string=Features2String(current_outputs,chars)
             labels_string=Features2String(current_labels,chars)
-            print ('\n----\nminibatch: %i, training error: %f, \n\nlast predicted output: %s, \n\nlast label: %s' %
+#            print 'Len(output)=', len(output_string)
+            print ('\n----\n*minibatch: %i, *training error: %f\n\n*last predicted output: \"%s\" \n\n*last label: \"%s\"' %
                      (kk, minibatch_avg_cost,output_string,labels_string))
             # Track trainning error
             track_train.append(minibatch_avg_cost)
