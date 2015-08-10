@@ -75,7 +75,7 @@ burnin = 50 # RNN throws away prediction before that time
 do_save = 1
 
 # number of hidden units
-n_H = 500
+n_H = 400
 # number of input units
 n_in=len(chars)+1 #number of characters 
 # number of output units
@@ -95,7 +95,7 @@ train_size=1000000 #len(data)-2*M
 test_size=M #from  the end?
 valid_size=M # after test range    
 
-memory_threshold=1e6  # maximal size of array to allow in memory
+memory_threshold=1e8  # maximal size of array to allow in memory
 
 data_test=data[(train_size+valid_size):(train_size+valid_size+test_size)]
 data_valid=data[train_size:(train_size+valid_size)]
