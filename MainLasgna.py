@@ -13,13 +13,15 @@ import numpy as np
 import theano
 import theano.tensor as T
 
+BATCH_NUM=10000
 BATCH_SIZE = 50 
 SEQUENCE_LENGTH = 100 # Length of input sequence into RNN
 HIDDEN_SIZE = 100 # RNN Hidden layer size 
 ORTHOGONALIZE=True # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
 DO_RETRACT=True # Should we do retraction step?
 THRESHOLD=0.1 #error threshold in which we do the retraction step
-
+opt_mathods_set=['SGD','ADAM']
+OPT_METHOD=opt_mathods_set[1]
 
 def load_dataset(dataset_file, vocabulary=None):
     """Load in a dataset from a text file, and return the dataset as a one-hot
@@ -117,23 +119,43 @@ if __name__ == '__main__':
         network_output, target))#/np.log(2)
     # Collect all network parameters
     all_params = lasagne.layers.get_all_params(l_out)
-    updates = lasagne.updates.adam(loss, all_params)
-    if ORTHOGONALIZE==True:
-        for param in all_params:
-            if param is l_rec.W_hid_to_hid:
-                updates[param] = param + tangent_grad(param, updates[param]-param)
-   
+    
+    if OPT_METHOD=='ADAM':
+        updates = lasagne.updates.adam(loss, all_params)
+        if ORTHOGONALIZE==True:
+            for param in all_params:
+                if param is l_rec.W_hid_to_hid:
+                    updates[param] = param + tangent_grad(param, updates[param]-param)
+    elif OPT_METHOD=='SGD':
+        learning_rate0=0.5
+        learning_rate=learning_rate0
+        lr=theano.shared(np.asarray(learning_rate,dtype=theano.config.floatX),borrow=True)
+        updates = []
+        grads = T.grad(loss, all_params)
+        for p,g in zip(all_params,grads):    
+            delta=lr*g/T.sqrt(T.sum(g**2)+1)
+            if (p is l_rec.W_hid_to_hid) and ORTHOGONALIZE==True:
+                updates.append((p,p - tangent_grad(p, delta)))
+            else:
+                updates.append((p,p - delta))
+                
+    else:
+        print 'unknown optimization method'
+                    
+        
     # Compile functions for training and computing output
     train = theano.function([l_in.input_var, target], loss, updates=updates)
     retract_w = theano.function([], [], updates=[(l_rec.W_hid_to_hid,retraction(l_rec.W_hid_to_hid))])
     get_output = theano.function([l_in.input_var], network_output)
 
-    for batch in range(10000):
+    for batch in range(BATCH_NUM):
         # Sample BATCH_SIZE sequences of length SEQUENCE_LENGTH from train_data
         next_batch = np.array([
             train_data[n:n + SEQUENCE_LENGTH]
             for n in np.random.choice(
                 train_data.shape[0] - SEQUENCE_LENGTH, BATCH_SIZE)])
+        if OPT_METHOD=='SGD':
+            learning_rate=learning_rate0*(1-batch/BATCH_NUM)
         # Train with this batch
         loss = train(next_batch[:, :-1],
                     next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
