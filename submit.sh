@@ -3,7 +3,7 @@
 # Torque directives
 #PBS -N theanoCode
 #PBS -W group_list=yetistats
-#PBS -l walltime=10:00:00,mem=5gb,other=gpu
+#PBS -l walltime=10:00:00,mem=15gb,other=gpu
 #PBS -M ds3293@columbia.edu
 #PBS -m abe
 #PBS -V
@@ -15,6 +15,6 @@
 module load anaconda/2.7.8
 module load cuda/6.5
 
-python "$1"
+python Main.py > pyoutfile
 
 #End of script

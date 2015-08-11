@@ -19,6 +19,7 @@ from layer_classes import RNN, SoftmaxClassifier, SVMclassifier
 from misc import GradClip, clip_gradient, Adam, SGD
 from pylab import load
 from random import sample
+import platform
 
 def String2Features(string,chars):
   
@@ -81,10 +82,15 @@ n_in=len(chars)+1 #number of characters
 # number of output units
 n_out = n_in
 
-fname = 'RNN_' + str(n_in)
+fname = '\RNN_' + str(n_in)
 
-savefilename = Directory + '\ORNNs' + fname + '.save'
-load_data_name = Directory + '\mrnns\wiki_letters_2G'
+if platform.platform()=='Windows-8-6.2.9200':
+    save_file_name = Directory + '\ORNNs' + fname + '.save'
+    load_data_name = Directory + '\mrnns\wiki_letters_2G'
+else:
+    print 'uknown OS. Please define filenames'
+
+
 
 print 'loading a chunk of wikipedia...'
 (data, _) = load(load_data_name)
@@ -226,8 +232,7 @@ while (epoch < n_epochs) and (not done_looping):
             T_split=int(L-(splits-1)*floor(L/splits))            
         
         split_loc=int(ss*floor(L/splits))
-        data_train_part=String2Features(data_train[split_loc:(split_loc+T_split)],chars)
-        
+        data_train_part=String2Features(data_train[split_loc:(split_loc+T_split)],chars)        
 
         n_train_batches=T_split/batch_size-1
         rand_indices=sample(range(0,T_split-batch_size,batch_size), n_train_batches)
@@ -237,14 +242,16 @@ while (epoch < n_epochs) and (not done_looping):
             minibatch_avg_cost, current_outputs, current_labels = train_model(rand_indices[kk])
             output_string=Features2String(current_outputs,chars)
             labels_string=Features2String(current_labels,chars)
-#            print 'Len(output)=', len(output_string)
-            print ('\n----\n*minibatch: %i, *training error: %f\n\n*last predicted output: \"%s\" \n\n*last label: \"%s\"' %
-                     (kk, minibatch_avg_cost,output_string,labels_string))
+
             # Track trainning error
             track_train.append(minibatch_avg_cost)
     
-            # iterationation number
-            iteration = (epoch - 1) * n_train_batches + kk
+            # iteration number
+            iteration = (epoch - 1)*(int(L/batch_size)) + ss * n_train_batches + kk
+            
+            #            print 'Len(output)=', len(output_string)
+            print ('\n----\n*minibatch: %i, *training error: %f\n\n*last predicted output: \"%s\" \n\n*last label: \"%s\"' %
+                     (iteration, minibatch_avg_cost,output_string,labels_string))
             
             validation_frequency = min(n_train_batches, patience / 2)
                               # go through this many
@@ -260,7 +267,7 @@ while (epoch < n_epochs) and (not done_looping):
                     current_loss, junk1, junk2=valid_model(kk) 
                     validation_loss = ((NV-1)/NV)*validation_loss+(1/NV)*current_loss               
                 print('--epoch %i, minibatch %i, validation error %f' %
-                     (epoch, kk + 1,
+                     (epoch, iteration,
                       validation_loss))
                 track_valid.append(validation_loss)
     
@@ -298,7 +305,7 @@ while (epoch < n_epochs) and (not done_looping):
                         p_indx = p_indx + 1
                         
                         
-                    f = file(savefilename, 'wb')
+                    f = file(save_file_name, 'wb')
                     for obj in [[params_sto] + [track_train] + [track_valid] + [track_test]]:
                         cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
     
@@ -329,7 +336,7 @@ if do_save:
         p_indx = p_indx + 1
     
 
-    f = file(savefilename, 'wb')
+    f = file(save_file_name, 'wb')
     for obj in [[params_sto] + [track_train] + [track_valid] + [track_test]]:
         cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
 
