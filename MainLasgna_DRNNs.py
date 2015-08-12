@@ -93,7 +93,7 @@ def retraction(Q):
 if __name__ == '__main__':
     # Get shakespeare_input.txt from here:
     # http://cs.stanford.edu/people/karpathy/char-rnn/shakespeare_input.txt
-    train_data, vocab = load_dataset('../data/shakespeare_input.txt')
+    train_data, vocab = load_dataset('data/shakespeare_input.txt')
     
     # define a list of parameters to orthogonalize (recurrent connectivities)
     param2orthogonlize=[]      
@@ -101,33 +101,31 @@ if __name__ == '__main__':
     # Construct network.  The last dimension is the vocab size.
     l_in = lasagne.layers.InputLayer(
         (BATCH_SIZE, SEQUENCE_LENGTH, train_data.shape[-1]))
-    # first recurrent layer
-    l_rec = lasagne.layers.RecurrentLayer(
-        l_in, HIDDEN_SIZE,
-        # Use orthogonal weight initialization
-        W_in_to_hid=lasagne.init.Orthogonal(),
-        W_hid_to_hid=lasagne.init.Orthogonal(),
-        nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_1')
-    param2orthogonlize.append(l_rec.W_hid_to_hid)
+    layers_to_concat = []
     # other recurrent layer
-    for dd in range(DEPTH-1): 
+    for dd in range(DEPTH): 
+        if dd == 0:
+            input_layer = l_in
+        else:
+            input_layer = l_rec
         l_rec = lasagne.layers.RecurrentLayer(
-            l_rec, HIDDEN_SIZE,
+            input_layer, HIDDEN_SIZE,
             # Use orthogonal weight initialization
             W_in_to_hid=lasagne.init.Orthogonal(),
             W_hid_to_hid=lasagne.init.Orthogonal(),
             nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_%i' % (dd+2))
         param2orthogonlize.append(l_rec.W_hid_to_hid)
+        layers_to_concat.append(l_rec)
         
         #  if we use normalized tanh nonlinearity (I think peformance is slightly worse)
         #   nonlinearity=lambda h: 1.7159*T.tanh(2*h/3),learn_init=True)
            
     
-#    rec_outputs=lasagne.layers.ConcatLayer([l_rec,l_rec2],axis=-1)           
+    rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=-1)           
            
     # Squash the batch and sequence (non-feature) dimensions   
-#    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, HIDDEN_SIZE])
-    l_reshape = lasagne.layers.ReshapeLayer(l_rec, [-1, HIDDEN_SIZE]) #if we just want the deepest RNN layer as output
+    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, DEPTH*HIDDEN_SIZE])
+#    l_reshape = lasagne.layers.ReshapeLayer(l_rec, [-1, HIDDEN_SIZE]) #if we just want the deepest RNN layer as output
     # Compute softmax output
     l_out = lasagne.layers.DenseLayer(
         l_reshape, train_data.shape[-1],
