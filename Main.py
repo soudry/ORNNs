@@ -323,10 +323,6 @@ print >> sys.stderr, ('The code for file ' +
                       os.path.split(__file__)[1] +
                       ' ran for %.2fm' % ((end_time - start_time) / 60.))
 
-#[test_losses, recon, raw] = probe_model(1)
-#plt.imshow(recon[-1,].reshape((28, 28)))
-#plt.show()
-
 #store data
 if do_save:
     params_sto = []
