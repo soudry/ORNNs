@@ -18,23 +18,25 @@ from util import load_dataset,tangent_grad,retraction,get_file_name
 # Training Parameters
 BATCH_NUM=10000
 BATCH_SIZE = 50
-SEQUENCE_LENGTH = 1000 # Length of input sequence into RNN
+SEQUENCE_LENGTH = 200 # Length of input sequence into RNN
 opt_mathods_set=['SGD','ADAM']
 OPT_METHOD=opt_mathods_set[1]
-dataset_set=['Shakespeare','Wiki']
+dataset_set=['Shakespeare','Wiki_2G']
 DATASET=dataset_set[0]
 training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,'OPT_METHOD':OPT_METHOD,'DATASET':DATASET}
 
 # Algorithm Parameters
 PROJ_GRAD=False # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
 RETRACT=False # Should we do retraction step?
-THRESHOLD=0.01 #error threshold in which we do the retraction step
-algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD}
+THRESHOLD=0 #error threshold in which we do the retraction step
+GAIN=1 # a multiplicative constant we add to all orthogonal matrices
+algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD,'GAIN':GAIN}
 
 # Network Architecture
 HIDDEN_SIZE = 200 # RNN Hidden layer size 
-DEPTH=1 # number of RNNs in the middle
-network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE}
+DEPTH=5 # number of RNNs in the middle
+ALL2OUTPUT=False # Are all hidden layers also directly connected to output? 
+network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE,'ALL2OUTPUT':ALL2OUTPUT}
 
 params={'training':training,'network':network,'algorithm':algorithm}
 DO_SAVE=True # should we save results?
@@ -42,9 +44,8 @@ DO_SAVE=True # should we save results?
 
 
 if __name__ == '__main__':
-    # Get shakespeare_input.txt from here:
-    # http://cs.stanford.edu/people/karpathy/char-rnn/shakespeare_input.txt
-    train_data, vocab = load_dataset('Data/shakespeare_input.txt')
+
+    train_data, vocab = load_dataset(DATASET)
     
     # define a list of parameters to orthogonalize (recurrent connectivities)
     param2orthogonlize=[]      
@@ -62,21 +63,25 @@ if __name__ == '__main__':
         l_rec = lasagne.layers.RecurrentLayer(
             input_layer, HIDDEN_SIZE,
             # Use orthogonal weight initialization
-            W_in_to_hid=lasagne.init.Orthogonal(),
-            W_hid_to_hid=lasagne.init.Orthogonal(),
+            W_in_to_hid=(lasagne.init.Orthogonal(gain=GAIN)),
+            W_hid_to_hid=lasagne.init.Orthogonal(gain=GAIN),
             nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_%i' % (dd+2))
         param2orthogonlize.append(l_rec.W_hid_to_hid)
         layers_to_concat.append(l_rec)
         
         #  if we use normalized tanh nonlinearity (I think peformance is slightly worse)
-        #   nonlinearity=lambda h: 1.7159*T.tanh(2*h/3),learn_init=True)
+        #  W_hid_to_hid nonlinearity=lambda h: 1.7159*T.tanh(2*h/3),learn_init=True)
            
+    if ALL2OUTPUT: #if we the output to connect to all hidden layers
+        rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=-1)           
+        output_size=DEPTH*HIDDEN_SIZE
+    else: #if we only want the deepest RNN layer as output
+        rec_outputs=l_rec
+        output_size=HIDDEN_SIZE
     
-    rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=-1)           
-           
-    # Squash the batch and sequence (non-feature) dimensions   
-    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, DEPTH*HIDDEN_SIZE])
-#    l_reshape = lasagne.layers.ReshapeLayer(l_rec, [-1, HIDDEN_SIZE]) #if we just want the deepest RNN layer as output
+    # Squash the batch and sequence (non-feature) dimensions     
+    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, output_size])
+
     # Compute softmax output
     l_out = lasagne.layers.DenseLayer(
         l_reshape, train_data.shape[-1],
@@ -116,7 +121,7 @@ if __name__ == '__main__':
     
     retract_updates=[]
     for p in param2orthogonlize:
-        retract_updates.append((p,retraction(p)))
+        retract_updates.append((p,GAIN*retraction(p)))
     
     # Compile functions for training and computing output
     train = theano.function([l_in.input_var, target], loss, updates=updates)
@@ -188,5 +193,5 @@ if __name__ == '__main__':
             cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
     
         f.close()
-            
-                        
+                
+                            
