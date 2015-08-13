@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BATCH_SIZE=100
-results=load('DRNN_depth=5_width=200.save')
+results=load('TASK_Shakespeare_D1_W200_SL100_.save')
 
 train_error=results[1]
 orthogonality_error=results[2]

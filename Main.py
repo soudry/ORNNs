@@ -1,339 +1,192 @@
-################################################
-# Import statements
-################################################
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Aug 10 21:20:37 2015
 
-import cPickle
-#import gzip
-import os
-import sys
-import time
+@authors: Colin Raffel & Daniel Soudry
+"""
 
+"""ORNN for next character predictionc
+"""
+import time,cPickle,sys,os
 import numpy as np
-#import h5py
-#from pylab import *
-#import matplotlib.pyplot as plt
-from math import ceil, floor
-import theano
+
+import theano,lasagne
 import theano.tensor as T
-from layer_classes import RNN, SoftmaxClassifier, SVMclassifier
-from misc import GradClip, clip_gradient, Adam, SGD
-from pylab import load
-from random import sample
-import platform
 
-def String2Features(string,chars):
-  
-    Lc=len(chars)
-    Mat=np.identity(Lc)
-    Mat=np.append(Mat,np.zeros([Lc,1]),axis=1)
-    chars_dict = dict((c,Mat[i,:]) for (i,c) in enumerate(chars))
-    other_char=np.zeros([Lc+1])
-    other_char[-1]=1
-    
-    result=[chars_dict.get(x,other_char) for x in string]
-    return result
-#    result=np.empty( shape=(0,Lc+1) )
+from util import load_dataset,tangent_grad,retraction,get_file_name
+#%% Set Parameters
+# Training Parameters
+BATCH_NUM=10000
+BATCH_SIZE = 50
+SEQUENCE_LENGTH = 1000 # Length of input sequence into RNN
+opt_mathods_set=['SGD','ADAM']
+OPT_METHOD=opt_mathods_set[1]
+dataset_set=['Shakespeare','Wiki']
+DATASET=dataset_set[0]
+training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,'OPT_METHOD':OPT_METHOD,'DATASET':DATASET}
 
-#    for x in list(string):
-#        if x in chars:
-#            temp=np.reshape(chars_dict[x],[1,Lc+1])            
-#            result=np.append(result,temp,axis=0)
-#        else:
-#            result=np.append(result,other_char,axis=0)
-            
-def Features2String(features,chars):
-    chars+='~'
-    L=np.shape(features)[0]
-    result=""    
-    for kk in range(L):
-        result+=chars[np.argmax(features[kk,:])]
-            
-    return result
-    
+# Algorithm Parameters
+PROJ_GRAD=False # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
+RETRACT=False # Should we do retraction step?
+THRESHOLD=0.01 #error threshold in which we do the retraction step
+algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD}
 
-#%%    
-################################################
-# Parameters
-################################################
+# Network Architecture
+HIDDEN_SIZE = 200 # RNN Hidden layer size 
+DEPTH=1 # number of RNNs in the middle
+network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE}
 
-#    all_chars
-#    """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-
-#    +.,:;?/\\!@#$%&*()"\'\n\xe2\x80\x94\xc2\xa7\x93\x99\xe5\x9c\x98\xe9\x95\xb7
-#    \x89\xaf\xe6\xe7\xb4\xa1\xb0\x8f\x9a\x8a\xc3\xa5\xc5\xb6\xb8=\xa9\xa8\xa2{\xc4
-#    \x81\xa0<>\x88\x92|\xbc\xb3\xad\x8b\x9b\x96\xe8\x83\xbd\x87\xa4\x8d\x8e\xe4\x85
-#    \x82\xba\xbb\x9d\xef\xe3\x91\xe1\x8c\xb9\xb2\xa6\xa3~}\xb1\xbf\xce\xe0\x84\x9f\x90
-#    \xae\x86\xaa\xbe\xac\xcf\xab`^\x97\xd9\xd8\xd7\x9e\xc7\xc9\t\xd0\xd1\xb5\xcc\xca\xea
-#    \xec\xeb\xcb\xc6\xda\xdb""" #all chars
-
-#used chars    
-chars = """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+.,:;?/\\!@#$%&*()"\'\n """    
-
-Directory='C:\Users\Daniel\Copy\Columbia\Research\RNNs' # change accorind to required directory
-
-n_epochs=10
-batch_size = 250
-burnin = 50 # RNN throws away prediction before that time
-do_save = 1
-
-# number of hidden units
-n_H = 400
-# number of input units
-n_in=len(chars)+1 #number of characters 
-# number of output units
-n_out = n_in
-
-fname = '\RNN_' + str(n_in)
-
-if platform.platform()=='Windows-8-6.2.9200':
-    save_file_name = Directory + '\ORNNs' + fname + '.save'
-    load_data_name = Directory + '\mrnns\wiki_letters_2G'
-else:
-    print 'uknown OS. Please define filenames'
-
-
-
-print 'loading a chunk of wikipedia...'
-(data, _) = load(load_data_name)
-_data = data
-
-M=1000
-train_size=1000000 #len(data)-2*M
-test_size=M #from  the end?
-valid_size=M # after test range    
-
-memory_threshold=1e8  # maximal size of array to allow in memory
-
-data_test=data[(train_size+valid_size):(train_size+valid_size+test_size)]
-data_valid=data[train_size:(train_size+valid_size)]
-data_train=data[:train_size]
-data=None # clear memory
-L=train_size
-
-splits=ceil(n_in*L/memory_threshold)
-T_split=int(floor(n_in*L/splits))
-
-# compute number of minibatches for training, validation and testing
-#n_train_batches = train_set_x.get_value(borrow=True).shape[0]
-#n_valid_batches = valid_set_x.get_value(borrow=True).shape[0]
-#n_test_batches = test_set_x.get_value(borrow=True).shape[0]
-#n_train_batches /= batch_size
-#n_valid_batches /= batch_size
-#n_test_batches /= batch_size
-
-# allocate symbolic variables for the data
-data_train_part=String2Features(data_train[:T_split],chars)
-data_train_sym = theano.shared(np.asarray(data_train_part,dtype=theano.config.floatX),borrow=True)
-data_valid_all=String2Features(data_valid,chars)
-data_valid_sym = theano.shared(np.asarray(data_valid_all,dtype=theano.config.floatX),borrow=True)
-data_test_all=String2Features(data_test,chars)
-data_test_sym = theano.shared(np.asarray(data_test_all,dtype=theano.config.floatX),borrow=True)
-x = T.matrix('x')   # the data input
-y = T.matrix('y')   # the labels
-index= T.lscalar('index')
-batch_size_sym=theano.shared(np.asarray(batch_size,dtype='int64'),borrow=True)
-burnin_sym=theano.shared(np.asarray(burnin,dtype='int64'),borrow=True)
-
-print 'done.'
-
+params={'training':training,'network':network,'algorithm':algorithm}
+DO_SAVE=True # should we save results?
 #%%
-######################
-# BUILD ACTUAL MODEL #
-######################
-print '... building the model'
-
-# allocate symbolic variables for the data
-
-is_train = T.iscalar('is_train') # pseudo boolean for switching between training and prediction
-rng = np.random.RandomState(1234)
-
-################################################
-# Architecture: input --> hidden layer -> predicted output
-################################################
 
 
-# input is T x features (so batch_size by n_in)
-RNN_1 = RNN(rng, x ,n_in=n_in,n_out=n_H,burnin=burnin)
-
-classifier = SoftmaxClassifier(RNN_1.output, n_H, n_out)
-#classifier = SVMclassifier(RNN_1.output, n_H, n_out)
-
-#classification_error = T.mean(T.nnet.categorical_crossentropy(y, SoftmaxClassifier.output ))
-#Perplexity=T.mean(-T.log2(RNN_1.output[y, T.arange(y.shape[0])]))
-#classification_error = 1-T.mean(T.eq(T.argmax(RNN_1.output, 1),y),axis=0)
-
-cost = T.mean(classifier.objective(y))
-
-# create a function to compute the mistakes that are made by the model
-probe_model = theano.function([index], [cost, classifier.output, y],
-      givens={ x: data_train_sym[index : index + batch_size_sym,:],
-               y: data_train_sym[index + burnin_sym  +1 : index + batch_size_sym + 1,:]})
-               
-# create a function to compute the mistakes that are made by the model on the validation set
-valid_model = theano.function([index], [cost, classifier.output, y],
-      givens={ x: data_valid_sym[index : index + batch_size_sym,:],
-               y: data_valid_sym[index + burnin_sym +1 :index + batch_size_sym + 1,:]})
-
-
-# create a function to compute the mistakes that are made by the model on the validation set
-test_model = theano.function([index], [cost, classifier.output, y],
-      givens={ x: data_test_sym[index : index + batch_size_sym,:],
-               y: data_test_sym[index + burnin_sym +1 :index + batch_size_sym + 1,:]})
-
-# create a list of all model parameters to be fit by gradient descent
-params = RNN_1.params+classifier.params
-
-## Regular SGD
-#updates = SGD(cost, params, lr=0.05)
-# updates from ADAM
-updates = Adam(cost, params)
-
-
-# create a function to train the model
-train_model = theano.function([index],[cost, classifier.output, y], updates=updates,
-      givens={ x: data_train_sym[index : index + batch_size_sym,:],
-               y: data_train_sym[index + burnin_sym +1 :index + batch_size_sym + 1,:]})
-
-#%%
-###############
-# TRAIN MODEL #
-###############
-print '... training'
-
-# early-stopping parameters
-patience = 5e3  # look as this many examples regardless
-add_patience = 5000
-#patience = train_set_x.get_value(borrow=True).shape[0] * n_epochs #no early stopping
-patience_increase = 2  # wait this much longer when a new best is
-                       # found
-improvement_threshold = 0.995  # a relative improvement of this much is
-                               # considered significant
-
-
-#best_params = None
-best_validation_loss = np.inf
-best_iter = 0
-#test_score = 0.
-start_time = time.clock()
-
-epoch = 0
-done_looping = False
-
-track_train = list()
-track_valid = list()
-track_test = list()
-
-while (epoch < n_epochs) and (not done_looping):
+if __name__ == '__main__':
+    # Get shakespeare_input.txt from here:
+    # http://cs.stanford.edu/people/karpathy/char-rnn/shakespeare_input.txt
+    train_data, vocab = load_dataset('Data/shakespeare_input.txt')
     
-    epoch = epoch + 1
-    for ss in range(int(splits)):
-        if ss<splits-1:
-            T_split=int(floor(L/splits))
+    # define a list of parameters to orthogonalize (recurrent connectivities)
+    param2orthogonlize=[]      
+    
+    # Construct network.  The last dimension is the vocab size.
+    l_in = lasagne.layers.InputLayer(
+        (BATCH_SIZE, SEQUENCE_LENGTH, train_data.shape[-1]))
+    layers_to_concat = []
+    # other recurrent layer
+    for dd in range(DEPTH): 
+        if dd == 0:
+            input_layer = l_in
         else:
-            T_split=int(L-(splits-1)*floor(L/splits))            
+            input_layer = l_rec
+        l_rec = lasagne.layers.RecurrentLayer(
+            input_layer, HIDDEN_SIZE,
+            # Use orthogonal weight initialization
+            W_in_to_hid=lasagne.init.Orthogonal(),
+            W_hid_to_hid=lasagne.init.Orthogonal(),
+            nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_%i' % (dd+2))
+        param2orthogonlize.append(l_rec.W_hid_to_hid)
+        layers_to_concat.append(l_rec)
         
-        split_loc=int(ss*floor(L/splits))
-        data_train_part=String2Features(data_train[split_loc:(split_loc+T_split)],chars)        
+        #  if we use normalized tanh nonlinearity (I think peformance is slightly worse)
+        #   nonlinearity=lambda h: 1.7159*T.tanh(2*h/3),learn_init=True)
+           
+    
+    rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=-1)           
+           
+    # Squash the batch and sequence (non-feature) dimensions   
+    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, DEPTH*HIDDEN_SIZE])
+#    l_reshape = lasagne.layers.ReshapeLayer(l_rec, [-1, HIDDEN_SIZE]) #if we just want the deepest RNN layer as output
+    # Compute softmax output
+    l_out = lasagne.layers.DenseLayer(
+        l_reshape, train_data.shape[-1],
+        nonlinearity=lasagne.nonlinearities.softmax)
 
-        n_train_batches=T_split/batch_size-1
-        rand_indices=sample(range(0,T_split-batch_size,batch_size), n_train_batches)
-        
-        for kk in range(n_train_batches):
-            # Train on minibatch
-            minibatch_avg_cost, current_outputs, current_labels = train_model(rand_indices[kk])
-            output_string=Features2String(current_outputs,chars)
-            labels_string=Features2String(current_labels,chars)
-
-            # Track trainning error
-            track_train.append(minibatch_avg_cost)
+    # Get Theano expression for network output
+    network_output = lasagne.layers.get_output(l_out)
+    # Symbolic vector for target
+    target = T.matrix('target')
+    # Compute categorical cross-entropy between prediction and target
+    loss = T.mean(lasagne.objectives.categorical_crossentropy(
+        network_output, target))#/np.log(2)
+    # Collect all network parameters
+    all_params = lasagne.layers.get_all_params(l_out)
+   
+    if OPT_METHOD=='ADAM':
+        updates = lasagne.updates.adam(loss, all_params)
+        if PROJ_GRAD==True:
+            for param in all_params:
+                if param in param2orthogonlize:
+                    updates[param] = param + tangent_grad(param, updates[param]-param)
+    elif OPT_METHOD=='SGD':
+        learning_rate0=0.5
+        learning_rate=learning_rate0
+        lr=theano.shared(np.asarray(learning_rate,dtype=theano.config.floatX),borrow=True)
+        updates = []
+        grads = T.grad(loss, all_params)
+        for p,g in zip(all_params,grads):    
+            delta=lr*g/T.sqrt(T.sum(g**2)+1) # normalize gradient size... a bit hacky
+            if (p in param2orthogonlize) and PROJ_GRAD==True:
+                updates.append((p,p - tangent_grad(p, delta)))
+            else:
+                updates.append((p,p - delta))
+                
+    else:
+        print 'unknown optimization method'
     
-            # iteration number
-            iteration = (epoch - 1)*(int(L/batch_size)) + ss * n_train_batches + kk
+    retract_updates=[]
+    for p in param2orthogonlize:
+        retract_updates.append((p,retraction(p)))
+    
+    # Compile functions for training and computing output
+    train = theano.function([l_in.input_var, target], loss, updates=updates)
+    retract_w = theano.function([], [], updates=retract_updates)
+    get_output = theano.function([l_in.input_var], network_output)
+    
+    train_error=[] 
+    orthoganality=[]
+    
+    start_time = time.clock()
+    
+    for batch in range(BATCH_NUM):
+        # Sample BATCH_SIZE sequences of length SEQUENCE_LENGTH from train_data
+        next_batch = np.array([
+            train_data[n:n + SEQUENCE_LENGTH]
+            for n in np.random.choice(
+                train_data.shape[0] - SEQUENCE_LENGTH, BATCH_SIZE)])
+        if OPT_METHOD=='SGD':
+            learning_rate=learning_rate0*(1-batch/BATCH_NUM)
+        # Train with this batch
+        loss = train(next_batch[:, :-1],
+                    next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
+        # Print diagnostics every 100 batches
+                    
+        if not batch % 100:
+            print "#### Iteration: {} Loss: {}".format(batch, loss)
             
-            #            print 'Len(output)=', len(output_string)
-            print ('\n----\n*minibatch: %i, *training error: %f\n\n*last predicted output: \"%s\" \n\n*last label: \"%s\"' %
-                     (iteration, minibatch_avg_cost,output_string,labels_string))
+            o_error=0
+            for p in param2orthogonlize:
+                W = p.get_value()
+                o_error += np.sum((np.eye(W.shape[0]) - np.dot(W.T, W))**2)
+            if RETRACT and o_error>THRESHOLD:
+                retract_w()
+                index=0
+                for p in param2orthogonlize:
+                    index+=1
+                    W = p.get_value()
+                    U,S,V=np.linalg.svd(W)
+                    print 'W%i singular values: max=%f, min=%f' % (index,np.min(S),np.max(S))
             
-            validation_frequency = min(n_train_batches, patience / 2)
-                              # go through this many
-                              # minibatche before checking the network
-                              # on the validation set; in this case we
-                              # check every epoch
+            print "#### Hid->hid nonorthogonality: {}".format(o_error)
+            print "#### Target:"
+            print ''.join([vocab[n] for n in np.argmax(next_batch[0], axis=1)])
+            print "#### Predicted:"
+            print ''.join([vocab[n] for n in
+                        np.argmax(get_output(next_batch[:1]), axis=1)])
+            # save results
+            train_error.append(loss)
+            orthoganality.append(o_error)
             
-            if (iteration + 1) % validation_frequency == 0:
-                # compute absolute error loss on validation set
-                validation_loss=0 
-                NV=valid_size
-                for kk in range(valid_size-batch_size-1):
-                    current_loss, junk1, junk2=valid_model(kk) 
-                    validation_loss = ((NV-1)/NV)*validation_loss+(1/NV)*current_loss               
-                print('--epoch %i, minibatch %i, validation error %f' %
-                     (epoch, iteration,
-                      validation_loss))
-                track_valid.append(validation_loss)
+    end_time = time.clock()
+    total_time=(end_time - start_time) / 60. # in minutes
     
-                # if we got the best validation score until now
-                if validation_loss < best_validation_loss:
-                    #improve patience if loss improvement is good enough
-                    if validation_loss < best_validation_loss *  \
-                           improvement_threshold:
-                        patience = max(patience, iteration + add_patience)
-                        #patience = max(patience, iteration * patience_increase)
-    
-                    best_validation_loss = validation_loss
-                    best_iter = iteration
-    
-                    # test it on the test set
-                    NT=test_size
-                    test_loss=0
-                    for kk in range(test_size-batch_size-1):
-                        current_test_loss, test_pred, junk3 = test_model(kk)  
-                        test_score=((NT-1)/NT)*test_loss+(1/NT)*test_loss    
-    
-                    print(('---- epoch %i, minibatch %i, test error of '
-                           'best model %f') %
-                          (epoch, kk + 1,
-                           test_score))
-                    track_test.append(np.mean(test_score))
-        
-            if do_save:
-                if (iteration+1)%1000==0:
-                    #store data
-                    params_sto = []
-                    p_indx = 0
-                    while p_indx<len(params):
-                        params_sto.append( params[p_indx].get_value() )
-                        p_indx = p_indx + 1
-                        
-                        
-                    f = file(save_file_name, 'wb')
-                    for obj in [[params_sto] + [track_train] + [track_valid] + [track_test]]:
-                        cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
-    
-                    f.close()
-    
-            if patience <= iteration:
-                done_looping = True
-                break
-
-end_time = time.clock()
-print(('Optimization complete. Best validation score of %f'
-       'obtained at iteration %i, with test performance %f') %
-      (best_validation_loss, best_iter + 1, np.sum(test_score)))
-print >> sys.stderr, ('The code for file ' +
+    print >> sys.stderr, ('The code for file ' +
                       os.path.split(__file__)[1] +
-                      ' ran for %.2fm' % ((end_time - start_time) / 60.))
-
-#store data
-if do_save:
-    params_sto = []
-    p_indx = 0
-    while p_indx<len(params):
-        params_sto.append( params[p_indx].get_value() )
-        p_indx = p_indx + 1
+                      ' ran for %.2fm' % (total_time))
     
-
-    f = file(save_file_name, 'wb')
-    for obj in [[params_sto] + [track_train] + [track_valid] + [track_test]]:
-        cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
-
-    f.close()
+    #store data
+    if DO_SAVE:
+        params_sto = []
+        p_indx = 0
+        while p_indx<len(all_params):
+            params_sto.append(all_params[p_indx].get_value() )
+            p_indx = p_indx + 1
+            
+        save_file_name=get_file_name(params)
+        f = file(save_file_name, 'wb')
+        for obj in [[params_sto] + [train_error] + [orthoganality]+[total_time]+[params]]:
+            cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
+    
+        f.close()
+            
+                        
