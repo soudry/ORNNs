@@ -10,7 +10,7 @@ import numpy as np
 
 BATCH_JUMP=100
 #results=load('Results/Shakespeare/TASK_D5_W200_SL1000_P_R0.save')
-results=load('Results/Shakespeare/TASK_D20_W100_SL1000.save')
+results=load('Results/Wiki_2G/TASK_D5_W706_G1.000000_SL250_P_R0.save')
 
 train_error=results[1]
 orthogonality_error=results[2]

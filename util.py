@@ -10,95 +10,142 @@ Created on Mon Aug 12  2015
 import numpy as np
 import theano.tensor as T
 import os
-from pylab import load
+#from pylab import load
 #import theano,lasagne
 
-
-def load_dataset_small(dataset_file, vocabulary=None):
-    """Load in a dataset from a text file, and return the dataset as a one-hot
-    matrix.
+def string2oneHot(data,vocabulary):
+    """Load in a string from a text file, and outputs it as a one-hot matrix.
 
     Parameters
     ----------
-    dataset_file : str
-        Path to dataset file, just a text file
-    vocabulary : list or None
-        List of characters in the dataset file; if None, the unique
-        characters in the file will be used.
+    data  : str
+        data
+    vocabulary : list
+        List of characters in the dataset file
 
     Returns
     -------
     data_matrix : np.ndarray
         One-hot encoding of the dataset.
-    vocabulary : list of str
-        Vocabulary of the dataset.
+
     """
-    # Read in entire text file
-    with open(dataset_file) as f:
-        data = f.read()
-    # Constructs vocabulary as all unique chars in text file
-    if vocabulary is None:
-        vocabulary = list(set(data))
-    data_matrix = np.zeros(
-        (len(data), len(vocabulary)), dtype=np.bool)
-    # Construct one-hot encoding
-    for n, char in enumerate(data):
-        if char in vocabulary:
-            data_matrix[n][vocabulary.index(char)] = 1
-    return data_matrix, vocabulary
-    
-def load_dataset_large(dataset_file,vocabulary_str="""abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+.,:;?/\\!@#$%&*()"\'\n """):
-  #    all_chars
-#    """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-
-#    +.,:;?/\\!@#$%&*()"\'\n\xe2\x80\x94\xc2\xa7\x93\x99\xe5\x9c\x98\xe9\x95\xb7
-#    \x89\xaf\xe6\xe7\xb4\xa1\xb0\x8f\x9a\x8a\xc3\xa5\xc5\xb6\xb8=\xa9\xa8\xa2{\xc4
-#    \x81\xa0<>\x88\x92|\xbc\xb3\xad\x8b\x9b\x96\xe8\x83\xbd\x87\xa4\x8d\x8e\xe4\x85
-#    \x82\xba\xbb\x9d\xef\xe3\x91\xe1\x8c\xb9\xb2\xa6\xa3~}\xb1\xbf\xce\xe0\x84\x9f\x90
-#    \xae\x86\xaa\xbe\xac\xcf\xab`^\x97\xd9\xd8\xd7\x9e\xc7\xc9\t\xd0\xd1\xb5\xcc\xca\xea
-#    \xec\xeb\xcb\xc6\xda\xdb""" #all chars
-    print 'loading a chunk of wikipedia...'
-    (data, _) = load(dataset_file)
-    data=data[1:100000000]
-    Lc=len(vocabulary_str)
+
+    Lc=len(vocabulary)
     Mat=np.identity(Lc)
     Mat=np.append(Mat,np.zeros([Lc,1]),axis=1)
-    vocabulary_dict = dict((c,Mat[i,:]) for (i,c) in enumerate(vocabulary_str))
-    other_char=np.zeros([Lc+1])
+    vocabulary_dict = dict((c,Mat[i,:]) for (i,c) in enumerate(vocabulary))
+    other_char=np.zeros([Lc+1],dtype=np.bool)
     other_char[-1]=1
     
-    result=[vocabulary_dict.get(x,other_char) for x in data]
-    vocabulary=[vocabulary_str[n] for n in range(len(vocabulary_str))]
-    print 'loading done'
-    return result,vocabulary
+    data_matrix=[vocabulary_dict.get(x,other_char) for x in data]
+
+    return data_matrix
     
-def load_dataset(dataset):
-    """Load in a dataset from a text file, and return the dataset as a one-hot
-    matrix.
-    
+class Data_ranges:
+    def __init__(self,train_size,valid_size,test_size):
+        self.train_end=train_size
+        self.test_end=test_size+train_size+valid_size
+        self.valid_end=train_size+valid_size
+        self.train_start = 0
+        self.valid_start =train_size
+        self.test_start = train_size+valid_size
+       
+def oneHot2string(data_matrix,vocabulary):
+    """Load in a string from a text file, and outputs it as string.
+
+    Inputs
+    ----------
+    data_matrix : np.ndarray
+        One-hot encoding of the dataset.
+
+    vocabulary : list
+        List of characters in the dataset file
+
+    Returns
+    -------
+    data  : string
+        data
+
+    """
+    vocabulary_new=vocabulary +['~'] # a letter for encoding outside vocabulary
+    L=np.shape(data_matrix)[0]
+    data=""    
+    for kk in range(L):
+        data+=vocabulary_new[np.argmax(data_matrix[kk,:])]
+            
+    return data
+
+def load_dataset(dataset,part=None):
+   
+    """ inputs:
+     dataset: string
+        dataset name
+    part (optional): integer
+        part of the dataset to output
+     
+     outputs:
+     datastring: very long string 
+         the dataset, as a list characters
+     vocabulary: list of str
+        Vocabulary of the dataset.
+     train_range, valid_range, test_range: 3 lists of 2 integers
+         the starting point and end of each range in the dataset
+     
+    Available datasets:
     # Get shakespeare_input.txt from here:
     # http://cs.stanford.edu/people/karpathy/char-rnn/shakespeare_input.txt
     # Get Wiki_letters_2G.txt from here: ....
     
-    Parameters
-    ----------
-    dataset: dataset name
-    
-    Returns
-    -------
-    data_matrix : np.ndarray
-        One-hot encoding of the dataset.
-    vocabulary : list of str
-        Vocabulary of the dataset
-    """        
+    """       
     dataset_file='Data/%s.txt' % (dataset)
+
+    print 'loading data...'
+    # Read in entire text file
+    with open(dataset_file) as f:
+        data = f.read()
+    print 'done'
+
     if dataset in ['Shakespeare']:
-       data_matrix, vocabulary=load_dataset_small(dataset_file)  
-       return data_matrix, vocabulary  
+        vocabulary = list(set(data)) 
+        
+        if part!=None:
+            L=len(data)
+            data=data[:part]
+    
+        M=int(np.round(0.1*len(data)))
+        train_size=len(data)-2*M #len(data)-2*M
+        test_size=M #from  the end?
+        valid_size=M # after test range 
+
     elif dataset in ['Wiki_2G']:
-       load_dataset_large(dataset_file)
+        vocabulary_str="""abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+.,:;?/\\!@#$%&*()"\'\n """
+        #    all_chars
+        #    """abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-
+        #    +.,:;?/\\!@#$%&*()"\'\n\xe2\x80\x94\xc2\xa7\x93\x99\xe5\x9c\x98\xe9\x95\xb7
+        #    \x89\xaf\xe6\xe7\xb4\xa1\xb0\x8f\x9a\x8a\xc3\xa5\xc5\xb6\xb8=\xa9\xa8\xa2{\xc4
+        #    \x81\xa0<>\x88\x92|\xbc\xb3\xad\x8b\x9b\x96\xe8\x83\xbd\x87\xa4\x8d\x8e\xe4\x85
+        #    \x82\xba\xbb\x9d\xef\xe3\x91\xe1\x8c\xb9\xb2\xa6\xa3~}\xb1\xbf\xce\xe0\x84\x9f\x90
+        #    \xae\x86\xaa\xbe\xac\xcf\xab`^\x97\xd9\xd8\xd7\x9e\xc7\xc9\t\xd0\xd1\xb5\xcc\xca\xea
+        #    \xec\xeb\xcb\xc6\xda\xdb""" #all chars 
+        
+        vocabulary=[vocabulary_str[n] for n in range(len(vocabulary_str))]
+        M=10000000 # original size of validation and test set in paper "Training and Analysing Deep Recurrent Neural Networks"
+        if part!=None:
+            L=len(data)
+            data=data[:part]
+            M=np.round(M*part/L)
+            
+        train_size=len(data)-2*M #len(data)-2*M
+        test_size=M #from  the end?
+        valid_size=M # after test range 
+        
     else:
        print 'unknown dataset!'
        
+    return data, vocabulary, Data_ranges(train_size,valid_size,test_size)
+   
+
+    
 
 
 def tangent_grad(X, grad):

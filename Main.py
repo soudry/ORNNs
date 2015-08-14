@@ -13,46 +13,50 @@ import numpy as np
 import theano,lasagne
 import theano.tensor as T
 
-from util import load_dataset,tangent_grad,retraction,get_file_name
+from util import load_dataset,tangent_grad,retraction,get_file_name,oneHot2string,string2oneHot
 #%% Set Parameters
 # Training Parameters
-BATCH_NUM=10000
+BATCH_NUM=500000
 BATCH_SIZE = 50
-SEQUENCE_LENGTH = 200 # Length of input sequence into RNN
+STAT_SKIP= 100 # How many Batches to wait before we update learning statistics, and retraction
+VALID_SKIP = 10000 # How many Batches to wait before we update validation and test error
+SEQUENCE_LENGTH = 250 # Length of input sequence into RNN
 opt_mathods_set=['SGD','ADAM']
 OPT_METHOD=opt_mathods_set[1]
 dataset_set=['Shakespeare','Wiki_2G']
-DATASET=dataset_set[0]
-training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,'OPT_METHOD':OPT_METHOD,'DATASET':DATASET}
+DATASET=dataset_set[1]
+training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,'OPT_METHOD':OPT_METHOD,
+'DATASET':DATASET,'STAT_SKIP':STAT_SKIP,'VALID_SKIP':VALID_SKIP}
 
 # Algorithm Parameters
-PROJ_GRAD=False # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
-RETRACT=False # Should we do retraction step?
+PROJ_GRAD=True # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
+RETRACT=True # Should we do retraction step?
 THRESHOLD=0 #error threshold in which we do the retraction step
 GAIN=1 # a multiplicative constant we add to all orthogonal matrices
 algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD,'GAIN':GAIN}
 
 # Network Architecture
-HIDDEN_SIZE = 200 # RNN Hidden layer size 
+HIDDEN_SIZE = 706 # RNN Hidden layer size 
 DEPTH=5 # number of RNNs in the middle
 ALL2OUTPUT=False # Are all hidden layers also directly connected to output? 
 network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE,'ALL2OUTPUT':ALL2OUTPUT}
 
 params={'training':training,'network':network,'algorithm':algorithm}
 DO_SAVE=True # should we save results?
-#%%
+#%% Intialize network model
 
 
 if __name__ == '__main__':
-
-    train_data, vocab = load_dataset(DATASET)
+    
+    data, vocab, data_ranges = load_dataset(DATASET)
     
     # define a list of parameters to orthogonalize (recurrent connectivities)
     param2orthogonlize=[]      
-    
-    # Construct network.  The last dimension is the vocab size.
+    # The number of features is number of different letters + 1 unknown letter
+    FEATURES_NUM=len(vocab)+1
+    # Construct network.  
     l_in = lasagne.layers.InputLayer(
-        (BATCH_SIZE, SEQUENCE_LENGTH, train_data.shape[-1]))
+        (BATCH_SIZE, SEQUENCE_LENGTH, FEATURES_NUM))
     layers_to_concat = []
     # other recurrent layer
     for dd in range(DEPTH): 
@@ -65,7 +69,7 @@ if __name__ == '__main__':
             # Use orthogonal weight initialization
             W_in_to_hid=(lasagne.init.Orthogonal(gain=GAIN)),
             W_hid_to_hid=lasagne.init.Orthogonal(gain=GAIN),
-            nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_%i' % (dd+2))
+            nonlinearity=lambda h: T.tanh(h),learn_init=True, name='RNN_%i' % (dd+1))
         param2orthogonlize.append(l_rec.W_hid_to_hid)
         layers_to_concat.append(l_rec)
         
@@ -84,7 +88,7 @@ if __name__ == '__main__':
 
     # Compute softmax output
     l_out = lasagne.layers.DenseLayer(
-        l_reshape, train_data.shape[-1],
+        l_reshape, FEATURES_NUM,
         nonlinearity=lasagne.nonlinearities.softmax)
 
     # Get Theano expression for network output
@@ -124,35 +128,44 @@ if __name__ == '__main__':
         retract_updates.append((p,GAIN*retraction(p)))
     
     # Compile functions for training and computing output
-    train = theano.function([l_in.input_var, target], loss, updates=updates)
-    retract_w = theano.function([], [], updates=retract_updates)
-    get_output = theano.function([l_in.input_var], network_output)
+    train = theano.function([l_in.input_var, target], loss, updates=updates,allow_input_downcast=True)
+    probe = theano.function([l_in.input_var, target], loss,allow_input_downcast=True)
+    retract_w = theano.function([], [], updates=retract_updates,allow_input_downcast=True)
+    get_output = theano.function([l_in.input_var], network_output,allow_input_downcast=True)
     
-    train_error=[] 
-    orthoganality=[]
-    
+    track_train_error=[]
+    track_valid_error=[] 
+    track_test_error=[] 
+    track_orthogonality=[]
+    track_trace_WW=[]
+ 
+
+#%%  Training    
     start_time = time.clock()
     
     for batch in range(BATCH_NUM):
         # Sample BATCH_SIZE sequences of length SEQUENCE_LENGTH from train_data
-        next_batch = np.array([
-            train_data[n:n + SEQUENCE_LENGTH]
-            for n in np.random.choice(
-                train_data.shape[0] - SEQUENCE_LENGTH, BATCH_SIZE)])
+        rand_indices=np.random.choice(data_ranges.train_end - SEQUENCE_LENGTH, BATCH_SIZE)
+        next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in rand_indices])
         if OPT_METHOD=='SGD':
             learning_rate=learning_rate0*(1-batch/BATCH_NUM)
         # Train with this batch
         loss = train(next_batch[:, :-1],
                     next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
-        # Print diagnostics every 100 batches
+        BATCH_NUM
+               
+        # Print diagnostics every STAT_SKIP batches
                     
-        if not batch % 100:
+        if not batch % STAT_SKIP:
             print "#### Iteration: {} Loss: {}".format(batch, loss)
             
             o_error=0
+            trace_error=0
             for p in param2orthogonlize:
                 W = p.get_value()
                 o_error += np.sum((np.eye(W.shape[0]) - np.dot(W.T, W))**2)
+                trace_error+=np.trace(np.dot(W.T, W))/(min(np.shape(W))*len(param2orthogonlize))
+                
             if RETRACT and o_error>THRESHOLD:
                 retract_w()
                 index=0
@@ -161,37 +174,66 @@ if __name__ == '__main__':
                     W = p.get_value()
                     U,S,V=np.linalg.svd(W)
                     print 'W%i singular values: max=%f, min=%f' % (index,np.min(S),np.max(S))
-            
+                    
             print "#### Hid->hid nonorthogonality: {}".format(o_error)
             print "#### Target:"
-            print ''.join([vocab[n] for n in np.argmax(next_batch[0], axis=1)])
+            print oneHot2string(next_batch[0],vocab)
             print "#### Predicted:"
-            print ''.join([vocab[n] for n in
-                        np.argmax(get_output(next_batch[:1]), axis=1)])
-            # save results
-            train_error.append(loss)
-            orthoganality.append(o_error)
+            print oneHot2string(get_output(next_batch[:1]),vocab)
+            # track results
+            track_train_error.append(loss)
+            track_orthogonality.append(o_error)
+            track_trace_WW.append(trace_error)
+    
+        if ((not (batch+1) % VALID_SKIP) or (batch==(BATCH_NUM-1))):
+            # Validation error            
+            valid_loss=0
+            valid_indices=range(data_ranges.valid_start,data_ranges.valid_end-SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH*BATCH_SIZE)
+            if len(valid_indices)==0: print 'validation set too small! increase data size, or reduce SEQUENCE_LENGTH*BATCH_SIZE'            
+            for n in valid_indices:
+                batch_indices=range(n,n+SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH)
+                next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in batch_indices])
+                loss= probe(next_batch[:, :-1],next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
+                valid_loss += loss/len(valid_indices)
+            track_valid_error.append(valid_loss)
             
-    end_time = time.clock()
-    total_time=(end_time - start_time) / 60. # in minutes
+            # Test error
+            test_loss=0
+            test_indices=range(data_ranges.test_start,data_ranges.test_end-SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH*BATCH_SIZE)
+            if len(test_indices)==0: print 'test set too small! increase data size, or reduce SEQUENCE_LENGTH*BATCH_SIZE'            
+                        
+            for n in test_indices:
+                batch_indices=range(n,n+SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH)
+                next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in batch_indices])
+                loss= probe(next_batch[:, :-1],next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
+                test_loss += loss/len(test_indices)
+            track_test_error.append(test_loss)
+            print '\n\n $$$$$$$$ Validation loss =', valid_loss, '$$$$$$$$'                
+            print '$$$$$$$$ Test loss =', test_loss, , '$$$$$$$$\n\n'           
+            
+            #Measure time
+            end_time = time.clock()
+            total_time=(end_time - start_time) / 60. # in minutes
+            
+            #store data
+            if DO_SAVE:
+                params_sto = []
+                p_indx = 0
+                while p_indx<len(all_params):
+                    params_sto.append(all_params[p_indx].get_value() )
+                    p_indx = p_indx + 1
+                    
+                save_file_name=get_file_name(params)
+                f = file(save_file_name, 'wb')
+                for obj in [[params_sto] + [track_train_error]+[track_valid_error] +[track_test_error]+ [track_orthogonality]+[track_trace_WW]+[total_time]+[params]]:
+                    cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
+            
+                f.close()
     
     print >> sys.stderr, ('The code for file ' +
                       os.path.split(__file__)[1] +
                       ' ran for %.2fm' % (total_time))
     
-    #store data
-    if DO_SAVE:
-        params_sto = []
-        p_indx = 0
-        while p_indx<len(all_params):
-            params_sto.append(all_params[p_indx].get_value() )
-            p_indx = p_indx + 1
-            
-        save_file_name=get_file_name(params)
-        f = file(save_file_name, 'wb')
-        for obj in [[params_sto] + [train_error] + [orthoganality]+[total_time]+[params]]:
-            cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
-    
-        f.close()
+
                 
                             
