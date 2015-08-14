@@ -9,17 +9,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BATCH_JUMP=100
+VALID_JUMP=10000
 #results=load('Results/Shakespeare/TASK_D5_W200_SL1000_P_R0.save')
-results=load('Results/Wiki_2G/TASK_D5_W706_G1.000000_SL250_P_R0.save')
+results=load('Results/Wiki_2G/TASK_D5_W706_G1_SL250_P_R0.save')
 
 train_error=results[1]
-orthogonality_error=results[2]
+orthogonality_error=results[4]
+trace_WW=results[5]
+train_error=results[1]
+valid_error=results[2]
+test_error=results[3]
+time=results[6] # in minutes
 L=len(train_error)
 
 fig, ax1 = plt.subplots()
 t = range(0,L*BATCH_JUMP,BATCH_JUMP)
+t_valid = range(0,L*BATCH_JUMP,VALID_JUMP)
 
 ax1.plot(t, train_error, 'b-')
+ax1.plot(t_valid, valid_error, 'b--')
+ax1.plot(t_valid, test_error, 'b:')
 ax1.set_xlabel('MinBatch #')
 # Make the y-axis label and tick labels match the line color.
 ax1.set_ylabel('Training error', color='b')
@@ -28,12 +37,13 @@ for tl in ax1.get_yticklabels():
 ax1.annotate('Training error=%.3f' % (train_error[-1]), xy=(t[-1], train_error[-1]),
             xytext=(np.floor(0.6*t[-1]), train_error[-1]*1.3),
             arrowprops=dict(facecolor='black', shrink=0.05))
-
+ax1.grid()
 ax2 = ax1.twinx()
 ax2.plot(t, orthogonality_error, 'r.')
 ax2.set_ylabel('Orthogonality error', color='r')
 for tl in ax2.get_yticklabels():
     tl.set_color('r')
+
 plt.show()
 
 #%% Multiple plots
@@ -53,4 +63,5 @@ for GAIN in gain_list:
     
 ax1.legend(loc=2)
 ax2.legend(loc=2)
+plt.grid()
 plt.show()

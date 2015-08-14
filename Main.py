@@ -9,6 +9,7 @@ Created on Mon Aug 10 21:20:37 2015
 """
 import time,cPickle,sys,os
 import numpy as np
+from pylab import load
 
 import theano,lasagne
 import theano.tensor as T
@@ -36,13 +37,17 @@ GAIN=1 # a multiplicative constant we add to all orthogonal matrices
 algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD,'GAIN':GAIN}
 
 # Network Architecture
-HIDDEN_SIZE = 706 # RNN Hidden layer size 
+HIDDEN_SIZE = 100 # RNN Hidden layer size 
 DEPTH=5 # number of RNNs in the middle
 ALL2OUTPUT=False # Are all hidden layers also directly connected to output? 
-network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE,'ALL2OUTPUT':ALL2OUTPUT}
+BURNIN=50 # Ignore this many first characters in the output
+LOAD_PREVIOUS=False # hould we load connectivity from a previous file?
+network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE,'ALL2OUTPUT':ALL2OUTPUT,'BURNIN':BURNIN,
+'LOAD_PREVIOUS':LOAD_PREVIOUS}
 
 params={'training':training,'network':network,'algorithm':algorithm}
 DO_SAVE=True # should we save results?
+save_file_name=get_file_name(params)
 #%% Intialize network model
 
 
@@ -54,11 +59,13 @@ if __name__ == '__main__':
     param2orthogonlize=[]      
     # The number of features is number of different letters + 1 unknown letter
     FEATURES_NUM=len(vocab)+1
-    # Construct network.  
+    # Construct network
+    
+    # Input layer
     l_in = lasagne.layers.InputLayer(
         (BATCH_SIZE, SEQUENCE_LENGTH, FEATURES_NUM))
     layers_to_concat = []
-    # other recurrent layer
+    # All recurrent layer
     for dd in range(DEPTH): 
         if dd == 0:
             input_layer = l_in
@@ -83,14 +90,18 @@ if __name__ == '__main__':
         rec_outputs=l_rec
         output_size=HIDDEN_SIZE
     
+    # Remove intial BURNIN steps from output 
+    l_sliced=lasagne.layers.SliceLayer(rec_outputs, indices=slice(BURNIN,None), axis=1)
+    
     # Squash the batch and sequence (non-feature) dimensions     
-    l_reshape = lasagne.layers.ReshapeLayer(rec_outputs, [-1, output_size])
+    l_reshape = lasagne.layers.ReshapeLayer(l_sliced, [-1, output_size])
 
     # Compute softmax output
-    l_out = lasagne.layers.DenseLayer(
+    l_out= lasagne.layers.DenseLayer(
         l_reshape, FEATURES_NUM,
         nonlinearity=lasagne.nonlinearities.softmax)
-
+        
+     
     # Get Theano expression for network output
     network_output = lasagne.layers.get_output(l_out)
     # Symbolic vector for target
@@ -100,7 +111,15 @@ if __name__ == '__main__':
         network_output, target))#/np.log(2)
     # Collect all network parameters
     all_params = lasagne.layers.get_all_params(l_out)
-   
+    
+    # Load previous run, if exists, and requested
+    if LOAD_PREVIOUS==True:
+        PREVIOUS_NAME=save_file_name
+        if os.path.isfile (PREVIOUS_NAME):
+            results=load(PREVIOUS_NAME)  
+            for (index,p) in enumerate(all_params):
+                p.set_value(results['connectivity'][index])
+    
     if OPT_METHOD=='ADAM':
         updates = lasagne.updates.adam(loss, all_params)
         if PROJ_GRAD==True:
@@ -119,7 +138,6 @@ if __name__ == '__main__':
                 updates.append((p,p - tangent_grad(p, delta)))
             else:
                 updates.append((p,p - delta))
-                
     else:
         print 'unknown optimization method'
     
@@ -147,15 +165,11 @@ if __name__ == '__main__':
         # Sample BATCH_SIZE sequences of length SEQUENCE_LENGTH from train_data
         rand_indices=np.random.choice(data_ranges.train_end - SEQUENCE_LENGTH, BATCH_SIZE)
         next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in rand_indices])
-        if OPT_METHOD=='SGD':
-            learning_rate=learning_rate0*(1-batch/BATCH_NUM)
         # Train with this batch
-        loss = train(next_batch[:, :-1],
-                    next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
-        BATCH_NUM
-               
-        # Print diagnostics every STAT_SKIP batches
-                    
+        loss = train(next_batch[:, :-1], next_batch[:, BURNIN+1:].reshape(-1, next_batch.shape[-1]))
+        # Update learning rate if we do SGD
+        if OPT_METHOD=='SGD': learning_rate=learning_rate0*(1-batch/BATCH_NUM)               
+        # Print diagnostics every STAT_SKIP batches                    
         if not batch % STAT_SKIP:
             print "#### Iteration: {} Loss: {}".format(batch, loss)
             
@@ -193,7 +207,7 @@ if __name__ == '__main__':
             for n in valid_indices:
                 batch_indices=range(n,n+SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH)
                 next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in batch_indices])
-                loss= probe(next_batch[:, :-1],next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
+                loss= probe(next_batch[:, :-1],next_batch[:, BURNIN+1:].reshape(-1, next_batch.shape[-1]))
                 valid_loss += loss/len(valid_indices)
             track_valid_error.append(valid_loss)
             
@@ -205,7 +219,7 @@ if __name__ == '__main__':
             for n in test_indices:
                 batch_indices=range(n,n+SEQUENCE_LENGTH*BATCH_SIZE,SEQUENCE_LENGTH)
                 next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in batch_indices])
-                loss= probe(next_batch[:, :-1],next_batch[:, 1:].reshape(-1, next_batch.shape[-1]))
+                loss= probe(next_batch[:, :-1],next_batch[:, BURNIN+1:].reshape(-1, next_batch.shape[-1]))
                 test_loss += loss/len(test_indices)
             track_test_error.append(test_loss)
             print '\n\n $$$$$$$$ Validation loss =', valid_loss, '$$$$$$$$'                
@@ -217,16 +231,13 @@ if __name__ == '__main__':
             
             #store data
             if DO_SAVE:
-                params_sto = []
-                p_indx = 0
-                while p_indx<len(all_params):
-                    params_sto.append(all_params[p_indx].get_value() )
-                    p_indx = p_indx + 1
-                    
-                save_file_name=get_file_name(params)
+                connectivity = []
+                for p in all_params:
+                    connectivity.append(p.get_value())                    
+                
                 f = file(save_file_name, 'wb')
-                for obj in [[params_sto] + [track_train_error]+[track_valid_error] +[track_test_error]+ [track_orthogonality]+[track_trace_WW]+[total_time]+[params]]:
-                    cPickle.dump(obj, f, protocol=cPickle.HIGHEST_PROTOCOL)
+                results={'track_train_error': track_train_error,'track_test_error':track_test_error,'track_orthogonality':track_orthogonality,'track_trace_WW':track_trace_WW,'params':params,'connectivity': connectivity,'total_time':total_time}
+                cPickle.dump(results, f, protocol=cPickle.HIGHEST_PROTOCOL)
             
                 f.close()
     

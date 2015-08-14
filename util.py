@@ -203,10 +203,10 @@ def get_file_name(params):
     if not os.path.exists(directory):
         os.makedirs(directory)
     
-#    if GAIN>1:
-    GAIN_str='_G%f' %(GAIN)
-#    else:
-#        GAIN_str=''
+    if GAIN>1:
+        GAIN_str='_G%f' %(GAIN)
+    else:
+        GAIN_str=''
     
     save_file_name='%s/TASK_D%i_W%i%s_SL%i%s.save' % (directory,DEPTH,HIDDEN_SIZE,GAIN_str,SEQUENCE_LENGTH,str1)
     
