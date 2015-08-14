@@ -17,7 +17,7 @@ from util import load_dataset,tangent_grad,retraction,get_file_name,oneHot2strin
 #%% Set Parameters
 # Training Parameters
 BATCH_NUM=500000
-BATCH_SIZE = 50
+BATCH_SIZE = 75
 STAT_SKIP= 100 # How many Batches to wait before we update learning statistics, and retraction
 VALID_SKIP = 10000 # How many Batches to wait before we update validation and test error
 SEQUENCE_LENGTH = 250 # Length of input sequence into RNN
@@ -209,7 +209,7 @@ if __name__ == '__main__':
                 test_loss += loss/len(test_indices)
             track_test_error.append(test_loss)
             print '\n\n $$$$$$$$ Validation loss =', valid_loss, '$$$$$$$$'                
-            print '$$$$$$$$ Test loss =', test_loss, , '$$$$$$$$\n\n'           
+            print '$$$$$$$$ Test loss =', test_loss,  '$$$$$$$$\n\n'           
             
             #Measure time
             end_time = time.clock()
