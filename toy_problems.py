@@ -9,6 +9,9 @@ import theano.tensor as T
 import util
 import functools
 import itertools
+import logging
+import csv
+import os
 
 BATCH_SIZE = 100
 N_SAMPLES = 100000
@@ -19,6 +22,27 @@ RESULTS_PATH = 'results'
 NUM_UNITS = 100
 
 if __name__ == '__main__':
+
+    if not os.path.exists(RESULTS_PATH):
+        os.makedirs(RESULTS_PATH)
+
+    # Create logger for results
+    logger = logging.getLogger('')
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(os.path.join(RESULTS_PATH, 'toy_problems.log'))
+    fh.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+    ch.setFormatter(formatter)
+    fh.setFormatter(formatter)
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+
+    # Create CSV writer for results
+    results_csv = open(os.path.join(RESULTS_PATH, 'toy_problems.csv'), 'wb')
+    writer = csv.writer(results_csv)
+
     # Define hyperparameter space
     task_options = [lstm_problems.add, lstm_problems.multiply,
                     lstm_problems.xor]
@@ -37,10 +61,10 @@ if __name__ == '__main__':
     # Iterate over hypermarameter settings
     for (task, sequence_length, orthogonalize, in_hid_std, compute_updates,
          learning_rate) in option_iterator:
-        print ('####### Learning rate: {}, updates: {}, in-hid std: {}, '
-               'orthogonalize: {}, sequence_length: {}, task: {}'.format(
-                   learning_rate, compute_updates, in_hid_std, orthogonalize,
-                   sequence_length, task))
+        logger.info('####### Learning rate: {}, updates: {}, in-hid std: {}, '
+                    'orthogonalize: {}, sequence_length: {}, task: {}'.format(
+                        learning_rate, compute_updates, in_hid_std,
+                        orthogonalize, sequence_length, task))
         # Create test set
         test_set = [task(sequence_length, BATCH_SIZE)
                     for _ in range(TEST_SIZE)]
@@ -89,6 +113,8 @@ if __name__ == '__main__':
             updates={l_rec.W_hid_to_hid: util.retraction(l_rec.W_hid_to_hid)})
         # Keep track of the number of samples used to train
         samples_trained = 0
+        # Did we converge?
+        success = True
         while samples_trained < N_SAMPLES:
             # Generate a batch of data
             X, y, mask = task(sequence_length, BATCH_SIZE)
@@ -99,7 +125,8 @@ if __name__ == '__main__':
             if any([not np.isfinite(cost),
                     any([not np.all(np.isfinite(p.get_value()))
                          for p in all_params])]):
-                print '####### Non-finite values found, aborting'
+                logger.info('####### Non-finite values found, aborting')
+                success = False
                 break
             # Update the number of samples trained
             samples_trained += BATCH_SIZE
@@ -111,6 +138,16 @@ if __name__ == '__main__':
                         y_test.astype(theano.config.floatX),
                         mask_test.astype(theano.config.floatX))
                     for X_test, y_test, mask_test in test_set])
-                print samples_trained, test_accuracy
+                logger.info("Samples trained: {}, accuracy: {}".format(
+                    samples_trained, test_accuracy))
             if orthogonalize and (not samples_trained % RETRACT_FREQUENCY):
                 retract_w()
+        if success:
+            final_accuracy = compute_accuracy(
+                X_test.astype(theano.config.floatX),
+                y_test.astype(theano.config.floatX),
+                mask_test.astype(theano.config.floatX))
+            writer.writerow(
+                [learning_rate, compute_updates, in_hid_std, orthogonalize,
+                 sequence_length, task, final_accuracy])
+    writer.close()
