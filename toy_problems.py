@@ -14,7 +14,7 @@ BATCH_SIZE = 100
 N_SAMPLES = 100000
 RETRACT_FREQUENCY = 10000
 TEST_FREQUENCY = 10000
-TEST_SIZE = 10000
+TEST_SIZE = 100
 RESULTS_PATH = 'results'
 NUM_UNITS = 100
 
@@ -42,9 +42,11 @@ if __name__ == '__main__':
                    learning_rate, compute_updates, in_hid_std, orthogonalize,
                    sequence_length, task))
         # Create test set
-        X_test, y_test, mask_test = task(sequence_length, TEST_SIZE)
+        test_set = [task(sequence_length, BATCH_SIZE)
+                    for _ in range(TEST_SIZE)]
         # Construct network
-        l_in = lasagne.layers.InputLayer((None, None, X_test.shape[-1]))
+        l_in = lasagne.layers.InputLayer(
+            (None, None, test_set[0][0].shape[-1]))
         l_mask = lasagne.layers.InputLayer((None, None))
         l_rec = lasagne.layers.RecurrentLayer(
             l_in, num_units=NUM_UNITS, mask_input=l_mask,
@@ -102,9 +104,13 @@ if __name__ == '__main__':
             # Update the number of samples trained
             samples_trained += BATCH_SIZE
             if (not samples_trained % TEST_FREQUENCY):
-                print samples_trained, compute_accuracy(
-                    X_test.astype(theano.config.floatX),
-                    y_test.astype(theano.config.floatX),
-                    mask_test.astype(theano.config.floatX))
+                # Compute mean across batches from test_set
+                test_accuracy = np.mean([
+                    compute_accuracy(
+                        X_test.astype(theano.config.floatX),
+                        y_test.astype(theano.config.floatX),
+                        mask_test.astype(theano.config.floatX))
+                    for X_test, y_test, mask_test in test_set])
+                print samples_trained, test_accuracy
             if orthogonalize and (not samples_trained % RETRACT_FREQUENCY):
                 retract_w()
