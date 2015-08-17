@@ -13,6 +13,7 @@ import itertools
 BATCH_SIZE = 100
 N_SAMPLES = 100000
 RETRACT_FREQUENCY = 10000
+TEST_FREQUENCY = 10000
 TEST_SIZE = 10000
 RESULTS_PATH = 'results'
 NUM_UNITS = 100
@@ -100,7 +101,7 @@ if __name__ == '__main__':
                 break
             # Update the number of samples trained
             samples_trained += BATCH_SIZE
-            if (not samples_trained % RETRACT_FREQUENCY):
+            if (not samples_trained % TEST_FREQUENCY):
                 print samples_trained, compute_accuracy(
                     X_test.astype(theano.config.floatX),
                     y_test.astype(theano.config.floatX),
