@@ -179,24 +179,26 @@ def get_file_name(params):
     # Get name of save file, based on parameters
 
     DEPTH=params['network']['DEPTH']
-    HIDDEN_SIZE=params['network']['HIDDEN_SIZE']
+    HIDDEN_WIDTH=params['network']['HIDDEN_WIDTH']
+    ALL2OUTPUT=params['network']['ALL2OUTPUT']
     
     SEQUENCE_LENGTH=params['training']['SEQUENCE_LENGTH']
+    BURNIN=params['training']['BURNIN']
     DATASET=params['training']['DATASET']
     RETRACT=params['algorithm']['RETRACT']
     PROJ_GRAD=params['algorithm']['PROJ_GRAD']
     THRESHOLD=params['algorithm']['THRESHOLD']
     GAIN=params['algorithm']['GAIN']
     
-    str1_list=[]
+    str1_list=['_']
     if PROJ_GRAD:
-        str1_list.append('_P')
+        str1_list.append('P')
     
     if RETRACT:
         if THRESHOLD>0:
-            str1_list.append('_R%f' %(THRESHOLD))
+            str1_list.append('R%f' %(THRESHOLD))
         else:
-            str1_list.append('_R0')
+            str1_list.append('R0')
         
     str1 = ''.join(str1_list)
     directory='Results/%s' % (DATASET)
@@ -207,7 +209,13 @@ def get_file_name(params):
         GAIN_str='_G%f' %(GAIN)
     else:
         GAIN_str=''
+        
+    if ALL2OUTPUT:
+        A_str='A'
+    else:
+        A_str=''
+        
     
-    save_file_name='%s/TASK_D%i_W%i%s_SL%i%s.save' % (directory,DEPTH,HIDDEN_SIZE,GAIN_str,SEQUENCE_LENGTH,str1)
+    save_file_name='%s/TASK_D%iW%i%s%s_SL%iB%i%s.save' % (directory,DEPTH,HIDDEN_WIDTH,A_str,GAIN_str,SEQUENCE_LENGTH,BURNIN,str1)
     
     return save_file_name

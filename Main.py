@@ -14,45 +14,48 @@ from pylab import load
 import theano,lasagne
 import theano.tensor as T
 
+## for debugging purposes:  
+#mode=theano.Mode(optimizer='fast_compile')
+
 from util import load_dataset,tangent_grad,retraction,get_file_name,oneHot2string,string2oneHot
 #%% Set Parameters
-# Training Parameters
-BATCH_NUM=500000
-BATCH_SIZE = 75
-STAT_SKIP= 100 # How many Batches to wait before we update learning statistics, and retraction
-VALID_SKIP = 10000 # How many Batches to wait before we update validation and test error
-SEQUENCE_LENGTH = 250 # Length of input sequence into RNN
-opt_mathods_set=['SGD','ADAM']
-OPT_METHOD=opt_mathods_set[1]
-dataset_set=['Shakespeare','Wiki_2G']
-DATASET=dataset_set[1]
-training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,'OPT_METHOD':OPT_METHOD,
-'DATASET':DATASET,'STAT_SKIP':STAT_SKIP,'VALID_SKIP':VALID_SKIP}
-
-# Algorithm Parameters
-PROJ_GRAD=True # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
-RETRACT=True # Should we do retraction step?
-THRESHOLD=0 #error threshold in which we do the retraction step
-GAIN=1 # a multiplicative constant we add to all orthogonal matrices
-algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD,'GAIN':GAIN}
-
 # Network Architecture
-HIDDEN_SIZE = 100 # RNN Hidden layer size 
-DEPTH=5 # number of RNNs in the middle
-ALL2OUTPUT=False # Are all hidden layers also directly connected to output? 
-BURNIN=50 # Ignore this many first characters in the output
-LOAD_PREVIOUS=False # hould we load connectivity from a previous file?
-network={'DEPTH':DEPTH,'HIDDEN_SIZE':HIDDEN_SIZE,'ALL2OUTPUT':ALL2OUTPUT,'BURNIN':BURNIN,
+HIDDEN_WIDTH = 200 # RNN Hidden layer size 
+DEPTH=3 # number of Hideen RNN layers
+ALL2OUTPUT=True # Are all hidden layers also directly connected to output? 
+LOAD_PREVIOUS=False # should we load connectivity from a previous file?
+network={'DEPTH':DEPTH,'HIDDEN_WIDTH':HIDDEN_WIDTH,'ALL2OUTPUT':ALL2OUTPUT,
 'LOAD_PREVIOUS':LOAD_PREVIOUS}
 
-params={'training':training,'network':network,'algorithm':algorithm}
-DO_SAVE=True # should we save results?
-save_file_name=get_file_name(params)
-#%% Intialize network model
+# Training Parameters
+BATCH_NUM=10000
+BATCH_SIZE = 50
+STAT_SKIP= 100 # How many Batches to wait before we update learning statistics, and retraction
+VALID_SKIP = 1000 # How many Batches to wait before we update validation and test error
+SEQUENCE_LENGTH = 250 # Length of input sequence into RNN
 
-
-if __name__ == '__main__':
+for BURNIN in [0,1,2,4,8,16,25,50,75,100]: # Ignore this many first characters in the output
+    dataset_set=['Shakespeare','Wiki_2G']
+    DATASET=dataset_set[0]
+    training={'BATCH_NUM':BATCH_NUM,'BATCH_SIZE':BATCH_SIZE,'SEQUENCE_LENGTH':SEQUENCE_LENGTH,
+    'BURNIN':BURNIN,'DATASET':DATASET,'STAT_SKIP':STAT_SKIP,'VALID_SKIP':VALID_SKIP}
     
+    # Algorithm Parameters
+    PROJ_GRAD=False # Should we project gradient on tangent space to to the Stiefel Manifold (Orthogonal matrices)?
+    RETRACT=False # Should we do retraction step?
+    THRESHOLD=0 #error threshold in which we do the retraction step
+    GAIN=1 # a multiplicative constant we add to all orthogonal matrices
+    RETRACT_SKIP=1 # How many Batches to wait before we do retraction
+    opt_mathods_set=['SGD','ADAM']
+    OPT_METHOD=opt_mathods_set[1]
+    algorithm={'PROJ_GRAD':PROJ_GRAD,'RETRACT':RETRACT,'THRESHOLD':THRESHOLD,
+    'GAIN':GAIN,'RETRACT_SKIP':RETRACT_SKIP,'OPT_METHOD':OPT_METHOD}
+    
+    params={'network':network,'training':training,'algorithm':algorithm}
+    DO_SAVE=True # should we save results?
+    save_file_name=get_file_name(params)
+    #%% Intialize network model
+        
     data, vocab, data_ranges = load_dataset(DATASET)
     
     # define a list of parameters to orthogonalize (recurrent connectivities)
@@ -63,7 +66,7 @@ if __name__ == '__main__':
     
     # Input layer
     l_in = lasagne.layers.InputLayer(
-        (BATCH_SIZE, SEQUENCE_LENGTH, FEATURES_NUM))
+        (BATCH_SIZE, SEQUENCE_LENGTH-1, FEATURES_NUM)) # the input has -1 sequence elength since we through away the last character (it is only predicted - in the output)
     layers_to_concat = []
     # All recurrent layer
     for dd in range(DEPTH): 
@@ -72,7 +75,7 @@ if __name__ == '__main__':
         else:
             input_layer = l_rec
         l_rec = lasagne.layers.RecurrentLayer(
-            input_layer, HIDDEN_SIZE,
+            input_layer, HIDDEN_WIDTH,
             # Use orthogonal weight initialization
             W_in_to_hid=(lasagne.init.Orthogonal(gain=GAIN)),
             W_hid_to_hid=lasagne.init.Orthogonal(gain=GAIN),
@@ -84,11 +87,11 @@ if __name__ == '__main__':
         #  W_hid_to_hid nonlinearity=lambda h: 1.7159*T.tanh(2*h/3),learn_init=True)
            
     if ALL2OUTPUT: #if we the output to connect to all hidden layers
-        rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=-1)           
-        output_size=DEPTH*HIDDEN_SIZE
+        rec_outputs=lasagne.layers.ConcatLayer(layers_to_concat,axis=2)           
+        output_size=DEPTH*HIDDEN_WIDTH
     else: #if we only want the deepest RNN layer as output
         rec_outputs=l_rec
-        output_size=HIDDEN_SIZE
+        output_size=HIDDEN_WIDTH
     
     # Remove intial BURNIN steps from output 
     l_sliced=lasagne.layers.SliceLayer(rec_outputs, indices=slice(BURNIN,None), axis=1)
@@ -100,8 +103,11 @@ if __name__ == '__main__':
     l_out= lasagne.layers.DenseLayer(
         l_reshape, FEATURES_NUM,
         nonlinearity=lasagne.nonlinearities.softmax)
-        
-     
+
+## for debugging purposes:        
+#    lasagne.layers.get_output_shape(layers_to_concat)
+#    lasagne.layers.get_output_shape(rec_outputs)
+    
     # Get Theano expression for network output
     network_output = lasagne.layers.get_output(l_out)
     # Symbolic vector for target
@@ -122,31 +128,30 @@ if __name__ == '__main__':
     
     if OPT_METHOD=='ADAM':
         updates = lasagne.updates.adam(loss, all_params)
-        if PROJ_GRAD==True:
-            for param in all_params:
-                if param in param2orthogonlize:
-                    updates[param] = param + tangent_grad(param, updates[param]-param)
     elif OPT_METHOD=='SGD':
         learning_rate0=0.5
         learning_rate=learning_rate0
         lr=theano.shared(np.asarray(learning_rate,dtype=theano.config.floatX),borrow=True)
-        updates = []
-        grads = T.grad(loss, all_params)
-        for p,g in zip(all_params,grads):    
-            delta=lr*g/T.sqrt(T.sum(g**2)+1) # normalize gradient size... a bit hacky
-            if (p in param2orthogonlize) and PROJ_GRAD==True:
-                updates.append((p,p - tangent_grad(p, delta)))
-            else:
-                updates.append((p,p - delta))
+        updates = lasagne.updates.sgd(loss, all_params, lr)
     else:
         print 'unknown optimization method'
     
+    angle=T.constant(0)        
+#            angle=theano.typed_list.TypedListType(T.dscalar)('angle')
+    for param in all_params:
+        if param in param2orthogonlize:
+            delta=updates[param]-param
+            tan_grad=tangent_grad(param,delta)
+            angle=angle+T.sqrt((tan_grad**2).sum() / (delta**2).sum())/len(param2orthogonlize)
+            if PROJ_GRAD==True:            
+                updates[param] = param + tan_grad 
+                    
     retract_updates=[]
     for p in param2orthogonlize:
         retract_updates.append((p,GAIN*retraction(p)))
     
     # Compile functions for training and computing output
-    train = theano.function([l_in.input_var, target], loss, updates=updates,allow_input_downcast=True)
+    train = theano.function([l_in.input_var, target], [loss,angle], updates=updates,allow_input_downcast=True)
     probe = theano.function([l_in.input_var, target], loss,allow_input_downcast=True)
     retract_w = theano.function([], [], updates=retract_updates,allow_input_downcast=True)
     get_output = theano.function([l_in.input_var], network_output,allow_input_downcast=True)
@@ -154,51 +159,78 @@ if __name__ == '__main__':
     track_train_error=[]
     track_valid_error=[] 
     track_test_error=[] 
+    
     track_orthogonality=[]
     track_trace_WW=[]
- 
+    track_angle=[]
+    track_S_min=[]
+    track_S_max=[]
 
 #%%  Training    
     start_time = time.clock()
+    o_error=float("inf")
     
     for batch in range(BATCH_NUM):
         # Sample BATCH_SIZE sequences of length SEQUENCE_LENGTH from train_data
         rand_indices=np.random.choice(data_ranges.train_end - SEQUENCE_LENGTH, BATCH_SIZE)
         next_batch = np.array([string2oneHot(data[n:n + SEQUENCE_LENGTH],vocab) for n in rand_indices])
         # Train with this batch
-        loss = train(next_batch[:, :-1], next_batch[:, BURNIN+1:].reshape(-1, next_batch.shape[-1]))
+        loss,angle = train(next_batch[:, :-1], next_batch[:, BURNIN+1:].reshape(-1, next_batch.shape[-1]))
         # Update learning rate if we do SGD
-        if OPT_METHOD=='SGD': learning_rate=learning_rate0*(1-batch/BATCH_NUM)               
+        if OPT_METHOD=='SGD': learning_rate=learning_rate0*(1-batch/BATCH_NUM)  
+
+        # Retract every RETRACT_SKIP batches  
+        if (not batch % RETRACT_SKIP) and RETRACT and o_error>=THRESHOLD:
+                retract_w()
+                    
         # Print diagnostics every STAT_SKIP batches                    
         if not batch % STAT_SKIP:
-            print "#### Iteration: {} Loss: {}".format(batch, loss)
+            print "\n######## Iteration: {} Loss: {}".format(batch, loss)
+            #Measure time
+            end_time = time.clock()
+            total_time=(end_time - start_time) / 60. # in minutes
+            print >> sys.stderr, ('Running time so far: %.2f minutes' % (total_time))      
             
+            # Examine orhtogonality measures
             o_error=0
             trace_error=0
             for p in param2orthogonlize:
                 W = p.get_value()
                 o_error += np.sum((np.eye(W.shape[0]) - np.dot(W.T, W))**2)
                 trace_error+=np.trace(np.dot(W.T, W))/(min(np.shape(W))*len(param2orthogonlize))
-                
-            if RETRACT and o_error>THRESHOLD:
-                retract_w()
-                index=0
-                for p in param2orthogonlize:
-                    index+=1
-                    W = p.get_value()
-                    U,S,V=np.linalg.svd(W)
-                    print 'W%i singular values: max=%f, min=%f' % (index,np.min(S),np.max(S))
-                    
+      
+
             print "#### Hid->hid nonorthogonality: {}".format(o_error)
-            print "#### Target:"
+            print '#### Tangent grad angle: %f' % (angle) 
+            A=np.eye(HIDDEN_WIDTH)
+            index=0
+            for p in param2orthogonlize:
+                index+=1
+                W = p.get_value()
+                A=np.dot(W,A)
+                U,S,V=np.linalg.svd(W)
+                S_mi=np.min(S)
+                S_ma=np.min(S)
+                print '#### W%i singular values: max=%f, min=%f' % (index,S_mi,S_ma) 
+            U,S,V=np.linalg.svd(A)
+            S_mi=np.min(S)
+            S_ma=np.min(S)
+            print '#### End2End singular values: max=%f, min=%f' % (S_mi,S_ma) 
+            
+            # Show text prediction examples
+            print "\n#### Target:"
             print oneHot2string(next_batch[0],vocab)
-            print "#### Predicted:"
+            print "\n#### Predicted:"
             print oneHot2string(get_output(next_batch[:1]),vocab)
+            
             # track results
             track_train_error.append(loss)
+            track_angle.append(angle)
             track_orthogonality.append(o_error)
             track_trace_WW.append(trace_error)
-    
+            track_S_min.append(S_mi)
+            track_S_max.append(S_ma)            
+            
         if ((not (batch+1) % VALID_SKIP) or (batch==(BATCH_NUM-1))):
             # Validation error            
             valid_loss=0
@@ -224,11 +256,7 @@ if __name__ == '__main__':
             track_test_error.append(test_loss)
             print '\n\n $$$$$$$$ Validation loss =', valid_loss, '$$$$$$$$'                
             print '$$$$$$$$ Test loss =', test_loss,  '$$$$$$$$\n\n'           
-            
-            #Measure time
-            end_time = time.clock()
-            total_time=(end_time - start_time) / 60. # in minutes
-            
+           
             #store data
             if DO_SAVE:
                 connectivity = []
@@ -236,15 +264,17 @@ if __name__ == '__main__':
                     connectivity.append(p.get_value())                    
                 
                 f = file(save_file_name, 'wb')
-                results={'track_train_error': track_train_error,'track_test_error':track_test_error,'track_orthogonality':track_orthogonality,'track_trace_WW':track_trace_WW,'params':params,'connectivity': connectivity,'total_time':total_time}
+                results={'track_train_error': track_train_error,'track_valid_error':track_valid_error,'track_test_error':track_test_error,
+                'track_orthogonality':track_orthogonality,'track_trace_WW':track_trace_WW,'track_angle':track_angle,'track_S_min':track_S_min,'track_S_max':track_S_max,
+                'params':params,'connectivity': connectivity,'total_time':total_time}
                 cPickle.dump(results, f, protocol=cPickle.HIGHEST_PROTOCOL)
             
                 f.close()
     
     print >> sys.stderr, ('The code for file ' +
                       os.path.split(__file__)[1] +
-                      ' ran for %.2fm' % (total_time))
-    
+                      ' ran for %.2f minutes' % (total_time))
 
-                
-                            
+
+            
+                        
