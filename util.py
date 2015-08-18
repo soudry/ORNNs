@@ -190,7 +190,10 @@ def get_file_name(params):
     THRESHOLD=params['algorithm']['THRESHOLD']
     GAIN=params['algorithm']['GAIN']
     
-    str1_list=['_']
+    if PROJ_GRAD or RETRACT:
+        str1_list=['_']
+    else:
+        str1_list=['']
     if PROJ_GRAD:
         str1_list.append('P')
     

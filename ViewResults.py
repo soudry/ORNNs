@@ -11,7 +11,9 @@ plt.close("all")
 
 #results=load('Results/Shakespeare/TASK_D5_W200_SL1000_P_R0.save')
 #results=load('Results/Wiki_2G/TASK_D5_W727_SL250_P_R0.save')
-results=load('Results/Wiki_2G/TASK_D5_W706_SL250.save')
+#results=load('Results/Wiki_2G/TASK_D5_W706_SL250.save')
+#results=load('Results/Wiki_2G/TASK_D5_W706_SL250_WithNANs.save')
+results=load('Results/Wiki_2G/TASK_D5W706A_SL250B50.save')
 
 BATCH_JUMP=results['params']['training']['STAT_SKIP']
 VALID_JUMP=results['params']['training']['VALID_SKIP']
@@ -37,12 +39,11 @@ ax1.set_xlabel('MinBatch #')
 best_valid_error_index=valid_error.index(min(valid_error))
 best_valid_error_time=(best_valid_error_index+1)*VALID_JUMP
 Test_error_bVe=test_error[best_valid_error_index] # test error when best validation error is achieved
-ax1.annotate('Validation-based Test_error=%.3f' % (Test_error_bVe), xy=(best_valid_error_time, Test_error_bVe),
-            xytext=(np.floor(0.5*best_valid_error_time), Test_error_bVe*1.3),
-            arrowprops=dict(facecolor='black', shrink=0.05))
+ax1.annotate('Validation-based test error=%.3f' % (Test_error_bVe), xy=(best_valid_error_time, Test_error_bVe),
+            xytext=(np.floor(0.5*best_valid_error_time), Test_error_bVe*2),
+            arrowprops=dict(facecolor='black', shrink=0.01))
 ax1.grid()
 ax1.legend(loc=2)
-
 
 fig2, ax2 = plt.subplots()
 ax2.plot(t, orthogonality_error, 'r.')
@@ -59,8 +60,15 @@ for tl in ax3.get_yticklabels():
     tl.set_color('b')
 #ax3.set_ylim([0,trace_error[-1]*1.5])
 
-
 plt.show()
+#%% More analysis
+
+#u,s,v=np.linalg.svd(jacobian[1])
+#plt.plot(s)
+
+fig, ax = plt.subplots()
+ax.imshow(hidden_units[1][2,:,:])
+
 
 #%% Multiple plots
 fig, ax1 = plt.subplots()
