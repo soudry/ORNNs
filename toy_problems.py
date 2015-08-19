@@ -56,7 +56,7 @@ if __name__ == '__main__':
         ('adam beta2=.99', functools.partial(lasagne.updates.adam, beta2=.99)),
         ('NAG', functools.partial(lasagne.updates.nesterov_momentum,
                                   momentum=.995))])
-    learning_rate_options = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
+    learning_rate_options = [1e-3, 1e-4, 1e-5, 1e-6]
     # Create iterator over every possible hyperparameter combination
     option_iterator = itertools.product(
         task_options, sequence_length_options, orthogonalize_options,
