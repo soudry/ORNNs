@@ -78,7 +78,7 @@ if __name__ == '__main__':
             nonlinearity=lasagne.nonlinearities.tanh)
         l_slice = lasagne.layers.SliceLayer(l_rec, -1, 1)
         l_out = lasagne.layers.DenseLayer(
-            l_slice, num_units=1, nonlinearity=lasagne.nonlinearities.sigmoid)
+            l_slice, num_units=1, nonlinearity=lasagne.nonlinearities.tanh)
         # Compute symbolic expression for predicted values
         network_output = lasagne.layers.get_output(l_out)
         # Remove a dimension from the output
