@@ -85,11 +85,11 @@ if __name__ == '__main__':
         predicted_values = network_output[:, -1]
         target_values = T.vector('target_values')
         # Our cost will be mean-squared error
-        cost = T.mean((predicted_values - target_values)**2)
+        loss = T.mean((predicted_values - target_values)**2)
         # Retrieve all parameters from the network
         all_params = lasagne.layers.get_all_params(l_out)
         # Compute SGD updates for training
-        updates = compute_updates(cost, all_params, learning_rate)
+        updates = compute_updates(loss, all_params, learning_rate)
         # Project gradient updates for recurrent hid-to-hid matrix
         if orthogonalize:
             new_update = util.tangent_grad(
@@ -99,7 +99,7 @@ if __name__ == '__main__':
         # Theano functions for training and computing cost
         train = theano.function(
             [l_in.input_var, target_values, l_mask.input_var],
-            cost, updates=updates)
+            loss, updates=updates)
         # Accuracy is defined as the proportion of examples whose absolute
         # error is less than .04
         accuracy = T.mean(abs(predicted_values - target_values) < .04)
@@ -114,12 +114,14 @@ if __name__ == '__main__':
         samples_trained = 0
         # Did we converge?
         success = True
+        # Store cost over minibatches
+        cost = 0
         while samples_trained < N_SAMPLES:
             # Generate a batch of data
             X, y, mask = task(sequence_length, BATCH_SIZE)
-            cost = train(X.astype(theano.config.floatX),
-                         y.astype(theano.config.floatX),
-                         mask.astype(theano.config.floatX))
+            cost += train(X.astype(theano.config.floatX),
+                          y.astype(theano.config.floatX),
+                          mask.astype(theano.config.floatX))
             # Quit when a non-finite value is found
             if any([not np.isfinite(cost),
                     any([not np.all(np.isfinite(p.get_value()))
@@ -137,8 +139,11 @@ if __name__ == '__main__':
                         y_test.astype(theano.config.floatX),
                         mask_test.astype(theano.config.floatX))
                     for X_test, y_test, mask_test in test_set])
-                logger.info("Samples trained: {}, accuracy: {}".format(
-                    samples_trained, test_accuracy))
+                logger.info("Samples trained: {}, cost: {}, accuracy: "
+                            "{}".format(samples_trained,
+                                        cost*BATCH_SIZE/TEST_FREQUENCY,
+                                        test_accuracy))
+                cost = 0
             if orthogonalize and (not samples_trained % RETRACT_FREQUENCY):
                 retract_w()
         if success:
