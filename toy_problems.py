@@ -50,7 +50,7 @@ if __name__ == '__main__':
         ('multiply', lstm_problems.multiply),
         ('xor', lstm_problems.xor)])
     sequence_length_options = [80, 400]
-    orthogonalize_options = [True, False]
+    orthogonalize_options = [False, True]
     compute_updates_options = collections.OrderedDict([
         ('adam', lasagne.updates.adam),
         ('adam beta2=.99', functools.partial(lasagne.updates.adam, beta2=.99)),
