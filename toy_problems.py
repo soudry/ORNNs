@@ -12,6 +12,7 @@ import itertools
 import logging
 import csv
 import os
+import collections
 
 BATCH_SIZE = 100
 N_SAMPLES = 2000000
@@ -44,14 +45,17 @@ if __name__ == '__main__':
     writer = csv.writer(results_csv)
 
     # Define hyperparameter space
-    task_options = [lstm_problems.add, lstm_problems.multiply,
-                    lstm_problems.xor]
+    task_options = collections.OrderedDict([
+        ('add', lstm_problems.add),
+        ('multiply', lstm_problems.multiply),
+        ('xor', lstm_problems.xor)])
     sequence_length_options = [80, 400]
     orthogonalize_options = [True, False]
-    compute_updates_options = [
-        lasagne.updates.adam,
-        functools.partial(lasagne.updates.nesterov_momentum,
-                          momentum=.995)]
+    compute_updates_options = collections.OrderedDict([
+        ('adam', lasagne.updates.adam),
+        ('adam beta2=.99', functools.partial(lasagne.updates.adam, beta2=.99)),
+        ('NAG', functools.partial(lasagne.updates.nesterov_momentum,
+                                  momentum=.995))])
     learning_rate_options = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
     # Create iterator over every possible hyperparameter combination
     option_iterator = itertools.product(
@@ -65,7 +69,7 @@ if __name__ == '__main__':
                         learning_rate, compute_updates,
                         orthogonalize, sequence_length, task))
         # Create test set
-        test_set = [task(sequence_length, BATCH_SIZE)
+        test_set = [task_options[task](sequence_length, BATCH_SIZE)
                     for _ in range(TEST_SIZE)]
         # Construct network
         l_in = lasagne.layers.InputLayer(
@@ -89,7 +93,8 @@ if __name__ == '__main__':
         # Retrieve all parameters from the network
         all_params = lasagne.layers.get_all_params(l_out)
         # Compute SGD updates for training
-        updates = compute_updates(loss, all_params, learning_rate)
+        updates = compute_updates_options[compute_updates](
+            loss, all_params, learning_rate)
         # Project gradient updates for recurrent hid-to-hid matrix
         if orthogonalize:
             new_update = util.tangent_grad(
@@ -118,7 +123,7 @@ if __name__ == '__main__':
         cost = 0
         while samples_trained < N_SAMPLES:
             # Generate a batch of data
-            X, y, mask = task(sequence_length, BATCH_SIZE)
+            X, y, mask = task_options[task](sequence_length, BATCH_SIZE)
             cost += train(X.astype(theano.config.floatX),
                           y.astype(theano.config.floatX),
                           mask.astype(theano.config.floatX))
