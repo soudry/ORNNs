@@ -48,7 +48,6 @@ if __name__ == '__main__':
                     lstm_problems.xor]
     sequence_length_options = [80, 400]
     orthogonalize_options = [True, False]
-    in_hid_std_options = [.001, .01, .1]
     compute_updates_options = [
         lasagne.updates.adam,
         functools.partial(lasagne.updates.nesterov_momentum,
@@ -57,13 +56,13 @@ if __name__ == '__main__':
     # Create iterator over every possible hyperparameter combination
     option_iterator = itertools.product(
         task_options, sequence_length_options, orthogonalize_options,
-        in_hid_std_options, compute_updates_options, learning_rate_options)
+        compute_updates_options, learning_rate_options)
     # Iterate over hypermarameter settings
-    for (task, sequence_length, orthogonalize, in_hid_std, compute_updates,
+    for (task, sequence_length, orthogonalize, compute_updates,
          learning_rate) in option_iterator:
-        logger.info('####### Learning rate: {}, updates: {}, in-hid std: {}, '
+        logger.info('####### Learning rate: {}, updates: {}, '
                     'orthogonalize: {}, sequence_length: {}, task: {}'.format(
-                        learning_rate, compute_updates, in_hid_std,
+                        learning_rate, compute_updates,
                         orthogonalize, sequence_length, task))
         # Create test set
         test_set = [task(sequence_length, BATCH_SIZE)
@@ -74,7 +73,7 @@ if __name__ == '__main__':
         l_mask = lasagne.layers.InputLayer((None, None))
         l_rec = lasagne.layers.RecurrentLayer(
             l_in, num_units=NUM_UNITS, mask_input=l_mask,
-            learn_init=True, W_in_to_hid=lasagne.init.Normal(in_hid_std),
+            learn_init=True, W_in_to_hid=lasagne.init.Orthogonal(),
             W_hid_to_hid=lasagne.init.Orthogonal(),
             nonlinearity=lasagne.nonlinearities.tanh)
         l_slice = lasagne.layers.SliceLayer(l_rec, -1, 1)
@@ -148,6 +147,6 @@ if __name__ == '__main__':
                 y_test.astype(theano.config.floatX),
                 mask_test.astype(theano.config.floatX))
             writer.writerow(
-                [learning_rate, compute_updates, in_hid_std, orthogonalize,
+                [learning_rate, compute_updates, orthogonalize,
                  sequence_length, task, final_accuracy])
     writer.close()
